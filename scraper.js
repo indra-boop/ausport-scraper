@@ -1,101 +1,83 @@
-const axios = require('axios');
-const cheerio = require('cheerio');
-const fs = require('fs');
+const puppeteer = require("puppeteer");
+const cheerio = require("cheerio");
+const fs = require("fs");
 
 const WEBAPP_URL = process.env.WEBAPP_URL;
 
-// Scrape satu hari (mon/tue/…/sun)
-async function scrapeDay(pathSuffix) {
-  const url = `https://ausportguide.com/live-sports-tv-guide/${pathSuffix}`;
-  console.log('Scraping URL:', url);
+async function scrapeDay(day) {
+  const url = `https://ausportguide.com/live-sports-tv-guide/${day}`;
+  console.log("Scraping:", url);
 
-  const res = await axios.get(url, {
-    headers: {
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      'Accept-Language': 'en-US,en;q=0.9'
-    },
-    timeout: 20000
+  const browser = await puppeteer.launch({
+    headless: "new",
+    args: ["--no-sandbox", "--disable-setuid-sandbox"]
   });
 
-  const $ = cheerio.load(res.data);
+  const page = await browser.newPage();
+  await page.setUserAgent(
+    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 " +
+    "(KHTML, like Gecko) Chrome/118.0 Safari/537.36"
+  );
+
+  // load page
+  await page.goto(url, { waitUntil: "networkidle2", timeout: 60000 });
+
+  // ambil HTML lengkap
+  const html = await page.content();
+  await browser.close();
+
+  const $ = cheerio.load(html);
   const rows = [];
 
-  $('.list-group-item').each((_, el) => {
+  $(".list-group-item").each((_, el) => {
     const row = $(el);
 
-    const dateText = row.find('.dayInfo').text().trim();
-    const timeText = row.find('.eventTime').text().trim();
-    const sport = row.closest('.sport-block').find('.sportTitle').first().text().trim();
-    const eventTitle = row.find('.eventTitle').text().trim();
-
+    const dateText = row.find(".dayInfo").text().trim();
+    const timeText = row.find(".eventTime").text().trim();
+    const sport = row.closest(".sport-block").find(".sportTitle").first().text().trim();
+    const eventTitle = row.find(".eventTitle").text().trim();
     const channel = row
       .find('[title^="Live on"]')
-      .map((i, c) => $(c).attr('title').replace('Live on ', '').trim())
+      .map((i, c) => $(c).attr("title").replace("Live on ", "").trim())
       .get()
-      .join(' / ');
+      .join(" / ");
 
-    if (!eventTitle) return; // skip baris kosong
+    if (!eventTitle) return;
 
-    rows.push([
-      dateText,    // A: Date
-      timeText,    // B: Time AEDT
-      sport,       // C: Sport
-      eventTitle,  // D: Event
-      channel      // E: Channel
-    ]);
+    rows.push([dateText, timeText, sport, eventTitle, channel]);
   });
 
-  console.log(`  >> ${pathSuffix.toUpperCase()} rows:`, rows.length);
+  console.log(`Rows for ${day}:`, rows.length);
   return rows;
 }
 
 async function main() {
-  let rows = [];
+  const days = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"];
+  let all = [];
 
-  // 7 hari ke depan: mon–sun (sesuai path Ausport)
-  const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
-
-  for (const d of days) {
+  for (let d of days) {
     try {
-      console.log(`--- ${d.toUpperCase()} ---`);
-      const dayRows = await scrapeDay(d);
-      rows.push(...dayRows);
-    } catch (e) {
-      console.log(`Error scraping ${d}:`, e.code || e.message);
+      const r = await scrapeDay(d);
+      all.push(...r);
+    } catch (err) {
+      console.log("Error scraping", d, err.message);
     }
   }
 
-  console.log('Total rows all days:', rows.length);
+  console.log("TOTAL rows:", all.length);
 
-  // ==== TULIS CSV SELALU, WALAU KOSONG ====
-  const header = ['Date', 'Time AEDT', 'Sport', 'Event', 'Channel'];
-  const csvLines = [header.join(',')];
+  const header = ["Date", "Time AEDT", "Sport", "Event", "Channel"];
+  const csvLines = [header.join(","), ...all.map(r => r.join(","))];
 
-  if (rows.length > 0) {
-    csvLines.push(...rows.map(r => r.join(',')));
-  } else {
-    console.log('WARNING: No rows scraped, CSV will contain header only.');
-  }
+  fs.writeFileSync("live_sports.csv", csvLines.join("\n"));
+  console.log("CSV written ✔️");
 
-  fs.writeFileSync('live_sports.csv', csvLines.join('\n'), 'utf8');
-  console.log('CSV written ✔️ (live_sports.csv)');
-
-  // ==== OPSIONAL: kirim ke Google Sheet lewat Apps Script ====
   if (!WEBAPP_URL) {
-    console.log('WEBAPP_URL not set → skip sending to Google Sheets');
+    console.log("WEBAPP_URL not set, skip sending to Google Sheets");
     return;
   }
-
-  await axios.post(
-    WEBAPP_URL,
-    { rows },
-    { headers: { 'Content-Type': 'application/json' } }
-  );
-
-  console.log('Data sent to Google Sheet ✔️');
 }
 
-// Jalankan main
 main().catch(err => {
   console.error(err);
   process.exit(1);
