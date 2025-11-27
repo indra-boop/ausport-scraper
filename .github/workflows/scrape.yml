@@ -44,16 +44,22 @@ jobs:
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Kalau file nggak ada (scraper gagal / timeout), jangan error
-          if [ ! -f results.csv ]; then
+          FILE="results.csv"
+
+          # Kalau file nggak ada, jangan error
+          if [ ! -f "$FILE" ]; then
             echo "CSV not found, skip commit"
             exit 0
           fi
 
-          # Kalau tidak ada perubahan di file, jangan commit
-          if git diff --quiet --exit-code results.csv; then
+          # Cek apakah file berubah (termasuk untracked)
+          if git status --porcelain "$FILE" | grep . > /dev/null; then
+            echo "Changes found, committing CSV"
+            git add "$FILE"
+            git commit -m "Update $FILE" || echo "Nothing to commit"
+            git push
+          else
             echo "No changes in CSV, skip commit"
-            exit 0
           fi
 
           echo "Changes found, committing CSV"
