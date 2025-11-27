@@ -45,18 +45,18 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           # Kalau file nggak ada (scraper gagal / timeout), jangan error
-          if [ ! -f live_sports.csv ]; then
+          if [ ! -f results.csv ]; then
             echo "CSV not found, skip commit"
             exit 0
           fi
 
           # Kalau tidak ada perubahan di file, jangan commit
-          if git diff --quiet --exit-code live_sports.csv; then
+          if git diff --quiet --exit-code results.csv; then
             echo "No changes in CSV, skip commit"
             exit 0
           fi
 
           echo "Changes found, committing CSV"
-          git add live_sports.csv
-          git commit -m "Update live_sports.csv"
+          git add results.csv
+          git commit -m "Update results.csv"
           git push
