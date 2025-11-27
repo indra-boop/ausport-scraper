@@ -1,21 +1,53 @@
-      - name: Commit CSV
+name: Scrape Ausport and update Sheet
+
+permissions:
+  contents: write
+
+on:
+  schedule:
+    - cron: '0 12 * * *'    # jalan tiap hari jam 12:00 UTC
+  workflow_dispatch:        # bisa dijalankan manual
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: true
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Run scraper
+        run: npm start
+
+      - name: Commit CSV (if changed)
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          # kalau file belum ada, jangan bikin git error
+          if [ ! -f live_sports.csv ]; then
+            echo "live_sports.csv belum ada, skip commit"
+            exit 0
+          fi
+
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          
-          if [ ! -f live_sports.csv ]; then
-            echo "CSV not found, creating new file"
-            git add live_sports.csv
-            git commit -m "Add live_sports.csv"
-            git push
-            exit 0
-          fi
-          
-          if git diff --quiet --exit-code live_sports.csv; then
-            echo "No changes found in CSV"
-            exit 0
-          fi
-          
+
           git add live_sports.csv
-          git commit -m "Update live_sports.csv"
-          git push
+
+          # cek apakah ada perubahan
+          if git diff --cached --quiet; then
+            echo "Tidak ada perubahan pada live_sports.csv, skip commit"
+          else
+            git commit -m "Update live_sports.csv"
+            git push
+          fi
