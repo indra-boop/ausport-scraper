@@ -2,8 +2,8 @@ name: Scrape Ausport and update Sheet
 
 on:
   schedule:
-    - cron: '0 12 * * *'
-  workflow_dispatch:
+    - cron: '0 12 * * *'      # jalan tiap hari jam 12:00 UTC
+  workflow_dispatch:          # bisa di-run manual dari tab Actions
 
 permissions:
   contents: write
@@ -29,23 +29,26 @@ jobs:
       - name: Run scraper
         run: npm start
 
-      - name: Commit CSV if exists & changed
+      - name: Commit CSV
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Skip kalau file tidak ada
+          # Jika file belum ada, commit langsung
           if [ ! -f live_sports.csv ]; then
-            echo "CSV file not generated, skip commit."
+            echo "CSV not found, committing first time"
+            git add live_sports.csv
+            git commit -m "Add live_sports.csv (first commit)"
+            git push
             exit 0
           fi
 
-          # Skip kalau tidak berubah
-          if git diff --quiet --exit-code live_sports.csv; then
-            echo "No changes found in CSV"
-            exit 0
+          # Jika ada perubahan, commit
+          if ! git diff --quiet --exit-code live_sports.csv; then
+            echo "Changes found, new CSV committed"
+            git add live_sports.csv
+            git commit -m "Update live_sports.csv"
+            git push
+          else
+            echo "No CSV changes — skip commit"
           fi
-
-          git add live_sports.csv
-          git commit -m "Update live_sports.csv"
-          git push
