@@ -105,9 +105,10 @@ async function scrapeDay(pathSuffix) {
     csv += `"${r.day}","${r.sport}","${r.competition}","${r.time}","${r.home}","${r.away}","${r.title.replace(/"/g,'""')}","${r.channels.replace(/"/g,'""')}","${r.sourceUrl}"\n`;
   }
 
-  fs.writeFileSync("results.csv", csv);
-  console.log("CSV written ✓");
-
+  const path = `${process.cwd()}/results.csv`;
+  fs.writeFileSync(path, csv);
+  console.log("CSV written:", path);
+  
   // Send to Google Sheets (optional)
   if (!WEBAPP_URL) {
     console.log("WEBAPP_URL not set, skip sending to Google Sheets");
