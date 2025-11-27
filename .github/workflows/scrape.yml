@@ -5,7 +5,7 @@ permissions:
 
 on:
   schedule:
-    - cron: '0 12 * * *'
+    - cron: '0 12 * * *'   # jalan setiap hari jam 12:00 UTC
   workflow_dispatch:
 
 jobs:
@@ -27,12 +27,18 @@ jobs:
         run: npm install
 
       - name: Run scraper
+        env:
+          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
         run: npm start
 
       - name: Commit CSV
         run: |
+          if git diff --quiet --exit-code live_sports.csv; then
+            echo "No updates"
+            exit 0
+          fi
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add live_sports.csv
-          git commit -m "Update live_sports.csv" || echo "No updates"
+          git commit -m "Update live_sports.csv"
           git push
