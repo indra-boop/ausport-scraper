@@ -2,8 +2,8 @@ name: Scrape Ausport and update Sheet
 
 on:
   schedule:
-    - cron: '0 12 * * *'  # jalan tiap hari jam 12:00 UTC
-  workflow_dispatch:       # bisa di-run manual
+    - cron: '0 12 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: write
@@ -13,8 +13,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
-      PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium-browser"
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "false"
 
     steps:
       - name: Checkout repo
@@ -27,16 +26,38 @@ jobs:
         with:
           node-version: '20'
 
-      - name: Install Chromium
+      - name: Install Chromium (ensure binary exists)
         run: |
           sudo apt-get update
-          sudo apt-get install -y chromium-browser
+          sudo apt-get install -y chromium chromium-browser || true
+          echo "Which chromium binaries:"
+          which chromium || true
+          which chromium-browser || true
+          chromium --version || chromium-browser --version || true
 
-      - name: Install dependencies
-        run: npm install
+      - name: Install dependencies (clean)
+        run: npm ci
 
-      - name: Run scraper
-        run: npm start
+      - name: Debug & run scraper
+        run: |
+          set -euo pipefail
+          echo "===== ENV ====="
+          printenv | sort
+          echo "===== Node & npm ====="
+          node --version
+          npm --version
+          echo "===== package.json scripts ====="
+          cat package.json | jq '.scripts' || cat package.json
+          echo "===== Check chromium binaries ====="
+          which chromium || true
+          which chromium-browser || true
+          chromium --version || chromium-browser --version || true
+          echo "===== Run scraper (capture errors) ====="
+          npm start --if-present || (
+            echo "npm start failed with code $?"
+            [ -f npm-debug.log ] && echo "---- npm-debug.log ----" && tail -n 300 npm-debug.log || true
+            exit 1
+          )
 
       - name: Commit CSV if exists & changed
         if: success()
@@ -46,14 +67,10 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           FILE="results.csv"
-
-          # Kalau file nggak ada, skip
           if [ ! -f "$FILE" ]; then
             echo "CSV not found, skip commit"
             exit 0
           fi
-
-          # 1) Kalau file tracked dan berubah -> commit update
           if git status --porcelain --untracked-files=no "$FILE" | grep . > /dev/null 2>&1; then
             echo "Tracked file changed, committing $FILE"
             git add "$FILE"
@@ -61,8 +78,6 @@ jobs:
             git push || echo "Push failed"
             exit 0
           fi
-
-          # 2) Kalau file belum pernah dilacak (untracked) -> add & commit
           if ! git ls-files --error-unmatch "$FILE" > /dev/null 2>&1; then
             echo "$FILE is untracked, adding and committing"
             git add "$FILE"
@@ -70,6 +85,4 @@ jobs:
             git push || echo "Push failed"
             exit 0
           fi
-
-          # 3) Tidak ada perubahan
           echo "No changes in $FILE, skip commit"
