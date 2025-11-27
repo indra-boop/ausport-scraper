@@ -19,7 +19,7 @@ async function scrapeDay(pathSuffix) {
   $('.list-group-item').each((_, el) => {
     const row = $(el);
 
-    const dateText = row.find('.listData h2.dayInfo').text().trim(); 
+    const dateText = row.find('.listData h2.dayInfo').text().trim();
     const timeText = row.find('.eventTime').text().trim();
 
     const sport =
@@ -36,11 +36,11 @@ async function scrapeDay(pathSuffix) {
     if (!eventTitle) return;
 
     rows.push([
-      dateText,     // A: Date
-      timeText,     // B: Time AEDT
-      sport,        // C: Sport Category
-      eventTitle,   // D: Live Event
-      channel,      // E: Channel
+      dateText,
+      timeText,
+      sport,
+      eventTitle,
+      channel,
     ]);
   });
 
@@ -48,30 +48,21 @@ async function scrapeDay(pathSuffix) {
 }
 
 async function main() {
-  // untuk sementara scrape hari friday
-  const rows = await scrapeDay('fri');
+  const rows = await scrapeDay('fri'); // sementara hanya Friday
 
   console.log('Total rows:', rows.length);
 
-  // Kalau tidak ada data, jangan dianggap error
   if (!rows || rows.length === 0) {
     console.log('No rows scraped. Exiting gracefully.');
     return;
   }
 
-  // ==== TULIS CSV ====
   const header = ['Date', 'Time AEDT', 'Sport', 'Event', 'Channel'];
-
-  // optional: escape koma / kutip
   const csvLines = [
     header.join(','),
     ...rows.map(r =>
       r
-        .map((v) => {
-          const s = String(v || '');
-          // bungkus dengan "..." dan escape "
-          return `"${s.replace(/"/g, '""')}"`;
-        })
+        .map(v => `"${String(v || '').replace(/"/g, '""')}"`)
         .join(',')
     ),
   ];
@@ -79,7 +70,6 @@ async function main() {
   fs.writeFileSync('live_sports.csv', csvLines.join('\n'), 'utf8');
   console.log('CSV written, rows:', rows.length);
 
-  // ==== KIRIM KE GOOGLE APPS SCRIPT (kalau WEBAPP_URL ada) ====
   if (!WEBAPP_URL) {
     console.log('WEBAPP_URL not set, skip update Google Sheet');
     return;
@@ -97,47 +87,3 @@ main().catch((err) => {
   console.error(err);
   process.exit(1);
 });
-  return rows;
-}
-
-async function main() {
-  // contoh: hari tertentu, misal /fri, /sat; atau "" untuk default hari ini
-  const rows = await scrapeDay('fri'); // nanti bisa kamu bikin loop semua hari kalau mau
-
-  console.log('Total rows:', rows.length);
-
-  if (!process.env.WEBAPP_URL) {
-  console.log('WEBAPP_URL not set, skip update Google Sheet');
-  process.exit(0); // jangan dianggap error
-}
-
-  // kirim ke Google Apps Script
-  const payload = { rows };
-  await axios.post(WEBAPP_URL, payload, {
-    headers: { 'Content-Type': 'application/json' }
-  });
-
-  console.log('Data sent to Google Sheet');
-}
-
-main().catch(err => {
-  console.error(err);
-  process.exit(1);
-});
-
-const fs = require('fs');
-
-// rows = array of row data yang sudah kamu buat
-// contoh header + data:
-const header = ['Date', 'Time AEDT', 'Sport', 'Event', 'Channel'];
-const csvLines = [
-  header.join(','),
-  if (!rows || rows.length === 0) {
-  console.log("No rows scraped. Exiting gracefully.");
-  process.exit(0);
-}
-  ...rows.map(r => r.join(','))
-];
-
-fs.writeFileSync('live_sports.csv', csvLines.join('\n'), 'utf8');
-console.log('CSV written, rows:', rows.length);
