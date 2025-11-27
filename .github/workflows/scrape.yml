@@ -41,28 +41,35 @@ jobs:
       - name: Commit CSV if exists & changed
         if: success()
         run: |
+          set -euo pipefail
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
           FILE="results.csv"
 
-          # Kalau file nggak ada, jangan error
+          # Kalau file nggak ada, skip
           if [ ! -f "$FILE" ]; then
             echo "CSV not found, skip commit"
             exit 0
           fi
 
-          # Cek apakah file berubah (termasuk untracked)
-          if git status --porcelain "$FILE" | grep . > /dev/null; then
-            echo "Changes found, committing CSV"
+          # 1) Kalau file tracked dan berubah -> commit update
+          if git status --porcelain --untracked-files=no "$FILE" | grep . > /dev/null 2>&1; then
+            echo "Tracked file changed, committing $FILE"
             git add "$FILE"
             git commit -m "Update $FILE" || echo "Nothing to commit"
-            git push
-          else
-            echo "No changes in CSV, skip commit"
+            git push || echo "Push failed"
+            exit 0
           fi
 
-          echo "Changes found, committing CSV"
-          git add results.csv
-          git commit -m "Update results.csv"
-          git push
+          # 2) Kalau file belum pernah dilacak (untracked) -> add & commit
+          if ! git ls-files --error-unmatch "$FILE" > /dev/null 2>&1; then
+            echo "$FILE is untracked, adding and committing"
+            git add "$FILE"
+            git commit -m "Add $FILE" || echo "Nothing to commit"
+            git push || echo "Push failed"
+            exit 0
+          fi
+
+          # 3) Tidak ada perubahan
+          echo "No changes in $FILE, skip commit"
