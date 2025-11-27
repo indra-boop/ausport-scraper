@@ -28,26 +28,22 @@ jobs:
         run: npm start
 
       - name: Commit CSV
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+  run: |
+    git config user.name "github-actions[bot]"
+    git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          # Kalau file belum ada, buat dulu & commit
-          if [ ! -f live_sports.csv ]; then
-            echo "CSV not found, creating new file"
-            git add live_sports.csv
-            git commit -m "Add live_sports.csv"
-            git push
-            exit 0
-          fi
+    # Kalau file belum ada, jangan error – anggap scraper gagal bikin file
+    if [ ! -f live_sports.csv ]; then
+      echo "CSV file not generated, skip commit."
+      exit 0
+    fi
 
-          # Kalau tidak ada perubahan, gak usah commit
-          if git diff --quiet --exit-code live_sports.csv; then
-            echo "No changes found in CSV"
-            exit 0
-          fi
+    # Kalau tidak ada perubahan di file, juga jangan commit
+    if git diff --quiet --exit-code live_sports.csv; then
+      echo "No changes found in CSV"
+      exit 0
+    fi
 
-          # Kalau ada perubahan, commit
-          git add live_sports.csv
-          git commit -m "Update live_sports.csv"
-          git push
+    git add live_sports.csv
+    git commit -m "Update live_sports.csv"
+    git push
