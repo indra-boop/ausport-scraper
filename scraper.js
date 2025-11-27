@@ -43,10 +43,10 @@ async function main() {
 
   console.log('Total rows:', rows.length);
 
-  if (!WEBAPP_URL) {
-    console.error('WEBAPP_URL not set');
-    process.exit(1);
-  }
+  if (!process.env.WEBAPP_URL) {
+  console.log('WEBAPP_URL not set, skip update Google Sheet');
+  process.exit(0); // jangan dianggap error
+}
 
   // kirim ke Google Apps Script
   const payload = { rows };
