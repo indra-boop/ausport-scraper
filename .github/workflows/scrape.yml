@@ -12,6 +12,10 @@ jobs:
   scrape:
     runs-on: ubuntu-latest
 
+    env:
+      PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
+      PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium-browser"
+
     steps:
       - name: Checkout repo
         uses: actions/checkout@v4
@@ -23,13 +27,17 @@ jobs:
         with:
           node-version: '20'
 
+      - name: Install Chromium
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser
+
       - name: Install dependencies
         run: npm install
 
       - name: Run scraper
         run: npm start
 
-      # HANYA jalan kalau step di atas sukses
       - name: Commit CSV if exists & changed
         if: success()
         run: |
