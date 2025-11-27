@@ -13,7 +13,8 @@ async function scrapeDay(pathSuffix) {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
       'Accept-Language': 'en-US,en;q=0.9'
-    }
+    },
+    timeout: 20000
   });
 
   const $ = cheerio.load(res.data);
@@ -44,6 +45,7 @@ async function scrapeDay(pathSuffix) {
     ]);
   });
 
+  console.log(`  >> ${pathSuffix.toUpperCase()} rows:`, rows.length);
   return rows;
 }
 
@@ -54,27 +56,28 @@ async function main() {
   const days = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
   for (const d of days) {
-    console.log(`--- ${d.toUpperCase()} ---`);
-    const dayRows = await scrapeDay(d);
-    console.log(`  rows: ${dayRows.length}`);
-    rows.push(...dayRows);
+    try {
+      console.log(`--- ${d.toUpperCase()} ---`);
+      const dayRows = await scrapeDay(d);
+      rows.push(...dayRows);
+    } catch (e) {
+      console.log(`Error scraping ${d}:`, e.code || e.message);
+    }
   }
 
   console.log('Total rows all days:', rows.length);
 
-  if (!rows || rows.length === 0) {
-    console.log('No rows scraped. Exiting gracefully.');
-    return;
+  // ==== TULIS CSV SELALU, WALAU KOSONG ====
+  const header = ['Date', 'Time AEDT', 'Sport', 'Event', 'Channel'];
+  const csvLines = [header.join(',')];
+
+  if (rows.length > 0) {
+    csvLines.push(...rows.map(r => r.join(',')));
+  } else {
+    console.log('WARNING: No rows scraped, CSV will contain header only.');
   }
 
-  // ==== TULIS CSV ====
-  const header = ['Date', 'Time AEDT', 'Sport', 'Event', 'Channel'];
-  const csvData = [
-    header.join(','),
-    ...rows.map(r => r.join(','))
-  ].join('\n');
-
-  fs.writeFileSync('live_sports.csv', csvData, 'utf8');
+  fs.writeFileSync('live_sports.csv', csvLines.join('\n'), 'utf8');
   console.log('CSV written ✔️ (live_sports.csv)');
 
   // ==== OPSIONAL: kirim ke Google Sheet lewat Apps Script ====
