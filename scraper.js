@@ -1,6 +1,6 @@
-let rows = [];
 const axios = require('axios');
 const cheerio = require('cheerio');
+const fs = require('fs');
 
 const WEBAPP_URL = process.env.WEBAPP_URL; // dari GitHub Secrets
 
@@ -9,8 +9,8 @@ async function scrapeDay(pathSuffix) {
   const res = await axios.get(url, {
     headers: {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
-      'Accept-Language': 'en-US,en;q=0.9'
-    }
+      'Accept-Language': 'en-US,en;q=0.9',
+    },
   });
 
   const $ = cheerio.load(res.data);
@@ -18,11 +18,20 @@ async function scrapeDay(pathSuffix) {
 
   $('.list-group-item').each((_, el) => {
     const row = $(el);
-    const dateText = row.find('.listData h2.dayInfo').text().trim(); // atau selector yg kemarin udah kamu pakai
+
+    const dateText = row.find('.listData h2.dayInfo').text().trim(); 
     const timeText = row.find('.eventTime').text().trim();
-    const sport = row.closest('.sport-block').find('.sportTitle').first().text().trim() || '';
+
+    const sport =
+      row.closest('.sport-block').find('.sportTitle').first().text().trim() || '';
+
     const eventTitle = row.find('.eventTitle').text().trim();
-    const channel = row.find('[title^="Live on"]').map((i, c) => $(c).attr('title').replace('Live on ', '').trim()).get().join(' / ');
+
+    const channel = row
+      .find('[title^="Live on"]')
+      .map((i, c) => $(c).attr('title').replace('Live on ', '').trim())
+      .get()
+      .join(' / ');
 
     if (!eventTitle) return;
 
@@ -31,10 +40,63 @@ async function scrapeDay(pathSuffix) {
       timeText,     // B: Time AEDT
       sport,        // C: Sport Category
       eventTitle,   // D: Live Event
-      channel       // E: Channel
+      channel,      // E: Channel
     ]);
   });
 
+  return rows;
+}
+
+async function main() {
+  // untuk sementara scrape hari friday
+  const rows = await scrapeDay('fri');
+
+  console.log('Total rows:', rows.length);
+
+  // Kalau tidak ada data, jangan dianggap error
+  if (!rows || rows.length === 0) {
+    console.log('No rows scraped. Exiting gracefully.');
+    return;
+  }
+
+  // ==== TULIS CSV ====
+  const header = ['Date', 'Time AEDT', 'Sport', 'Event', 'Channel'];
+
+  // optional: escape koma / kutip
+  const csvLines = [
+    header.join(','),
+    ...rows.map(r =>
+      r
+        .map((v) => {
+          const s = String(v || '');
+          // bungkus dengan "..." dan escape "
+          return `"${s.replace(/"/g, '""')}"`;
+        })
+        .join(',')
+    ),
+  ];
+
+  fs.writeFileSync('live_sports.csv', csvLines.join('\n'), 'utf8');
+  console.log('CSV written, rows:', rows.length);
+
+  // ==== KIRIM KE GOOGLE APPS SCRIPT (kalau WEBAPP_URL ada) ====
+  if (!WEBAPP_URL) {
+    console.log('WEBAPP_URL not set, skip update Google Sheet');
+    return;
+  }
+
+  const payload = { rows };
+  await axios.post(WEBAPP_URL, payload, {
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  console.log('Data sent to Google Sheet');
+}
+
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});
   return rows;
 }
 
