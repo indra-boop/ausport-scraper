@@ -69,6 +69,10 @@ const fs = require('fs');
 const header = ['Date', 'Time AEDT', 'Sport', 'Event', 'Channel'];
 const csvLines = [
   header.join(','),
+  if (!rows || rows.length === 0) {
+  console.log("No rows scraped. Exiting gracefully.");
+  process.exit(0);
+}
   ...rows.map(r => r.join(','))
 ];
 
