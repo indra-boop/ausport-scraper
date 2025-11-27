@@ -61,3 +61,16 @@ main().catch(err => {
   console.error(err);
   process.exit(1);
 });
+
+const fs = require('fs');
+
+// rows = array of row data yang sudah kamu buat
+// contoh header + data:
+const header = ['Date', 'Time AEDT', 'Sport', 'Event', 'Channel'];
+const csvLines = [
+  header.join(','),
+  ...rows.map(r => r.join(','))
+];
+
+fs.writeFileSync('live_sports.csv', csvLines.join('\n'), 'utf8');
+console.log('CSV written, rows:', rows.length);
