@@ -61,8 +61,3 @@ jobs:
           else
             echo "No changes in CSV, skip commit"
           fi
-
-          echo "Changes found, committing CSV"
-          git add results.csv
-          git commit -m "Update results.csv"
-          git push
