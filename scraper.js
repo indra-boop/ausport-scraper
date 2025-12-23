@@ -2,8 +2,6 @@ const axios = require('axios');
 const cheerio = require('cheerio');
 const fs = require('fs');
 
-const WEBAPP_URL = process.env.WEBAPP_URL;
-
 const DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 
 const MONTH_MAP = {
@@ -20,6 +18,10 @@ const MONTH_MAP = {
   November: 10, Nov: 10,
   December: 11, Dec: 11
 };
+
+function getWebappUrl() {
+  return process.env.WEBAPP_URL;
+}
 
 // fallback kalau header tanggal gagal
 function fallbackDateForDay(pathSuffix) {
@@ -63,9 +65,7 @@ function resolveDateForPage($, pathSuffix) {
         const year = now.getFullYear();
         const baseDate = new Date(year, monthIdx, dayNum);
 
-        const hariIndo = baseDate.toLocaleDateString('id-ID', {
-          weekday: 'long'
-        });
+        const hariIndo = baseDate.toLocaleDateString('id-ID', { weekday: 'long' });
         const tanggalFormatted = baseDate.toLocaleDateString('id-ID', {
           day: '2-digit',
           month: '2-digit',
@@ -102,7 +102,6 @@ function convertAedtToWita(timeStr) {
 
   const hh = displayH.toString();
   const mm = minutes.toString().padStart(2, '0');
-
   return `${hh}:${mm}${outAmpm}`;
 }
 
@@ -128,50 +127,7 @@ function getWitaDateFromBase(baseDate, timeStr) {
   if (/PM/i.test(ampm) && hour !== 12) hour += 12;
   if (/AM/i.test(ampm) && hour === 12) hour = 0;
 
-  d.setHours(hour);
-  d.setMinutes(minutes);
-  d.setSeconds(0);
-  d.setMilliseconds(0);
-
-  d.setHours(d.getHours() - 3); // AEDT → WITA
-
-  const hariWita = d.toLocaleDateString('id-ID', { weekday: 'long' });
-  const tanggalWita = d.toLocaleDateString('id-ID', {
-    day: '2-digit',
-    month: '2-digit',
-    year: '2-digit'
-  });
-
-  return { hariWita, tanggalWita };
-}
-
-// Hitung hari/tanggal WITA dari baseDate Australia + time AEDT
-function getWitaDateFromBase(baseDate, timeStr) {
-  const d = new Date(baseDate);
-
-  const match = timeStr.match(/^(\d{1,2}):(\d{2})(AM|PM)$/i);
-  if (!match) {
-    const hariWita = d.toLocaleDateString('id-ID', { weekday: 'long' });
-    const tanggalWita = d.toLocaleDateString('id-ID', {
-      day: '2-digit',
-      month: '2-digit',
-      year: '2-digit'
-    });
-    return { hariWita, tanggalWita };
-  }
-
-  let [, hStr, minStr, ampm] = match;
-  let hour = parseInt(hStr, 10);
-  const minutes = parseInt(minStr, 10);
-
-  if (/PM/i.test(ampm) && hour !== 12) hour += 12;
-  if (/AM/i.test(ampm) && hour === 12) hour = 0;
-
-  d.setHours(hour);
-  d.setMinutes(minutes);
-  d.setSeconds(0);
-  d.setMilliseconds(0);
-
+  d.setHours(hour, minutes, 0, 0);
   d.setHours(d.getHours() - 3); // AEDT → WITA
 
   const hariWita = d.toLocaleDateString('id-ID', { weekday: 'long' });
@@ -188,10 +144,8 @@ function getWitaDateFromBase(baseDate, timeStr) {
 function findSportForEvent($, eventDiv) {
   const $event = $(eventDiv);
 
-  // 1) Pola utama: event ada di dalam .panelLeague
   const panelLeague = $event.closest('.panelLeague');
   if (panelLeague.length) {
-    // .panelType (yang punya <h3>) ada tepat sebelum .panelLeague
     const panelType = panelLeague.prevAll('.panelType').first();
     if (panelType.length) {
       const h3 = panelType.find('h3').first();
@@ -209,7 +163,6 @@ function findSportForEvent($, eventDiv) {
     }
   }
 
-  // 2) Fallback: naik parent, cari h3 di sibling sebelumnya (lebih longgar)
   let cur = $event.parent();
   for (let i = 0; i < 10 && cur.length; i++) {
     const h3 = cur.prevAll().find('h3').first();
@@ -230,7 +183,6 @@ function findSportForEvent($, eventDiv) {
   return '';
 }
 
-
 // ----------------------
 // Scraper per hari
 // ----------------------
@@ -238,22 +190,16 @@ async function scrapeDay(pathSuffix) {
   const url = `https://ausportguide.com/live-sports-tv-guide/${pathSuffix}`;
   console.log('Scraping:', url);
 
-  let res;
-  try {
-    res = await axios.get(url, {
-      headers: {
-        'User-Agent':
-          'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
-        'Accept-Language': 'en-US,en;q=0.9'
-      },
-      timeout: 30000,
-      maxRedirects: 5,
-      validateStatus: status => status >= 200 && status < 400
-    });
-  } catch (err) {
-    console.error(`HTTP request failed for ${url}:`, err.message);
-    throw err;
-  }
+  const res = await axios.get(url, {
+    headers: {
+      'User-Agent':
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0 Safari/537.36',
+      'Accept-Language': 'en-US,en;q=0.9'
+    },
+    timeout: 30000,
+    maxRedirects: 5,
+    validateStatus: status => status >= 200 && status < 400
+  });
 
   const $ = cheerio.load(res.data);
   const dateInfo = resolveDateForPage($, pathSuffix);
@@ -261,88 +207,66 @@ async function scrapeDay(pathSuffix) {
   const rows = [];
   let currentCompetition = '';
 
-  // Jalan urut: h3 / leagueTitle / list-group-item
-  $('h3, .leagueTitle, div.list-group-item.d-flex.gap-3.shadow-sm').each(
-    (idx, el) => {
-      const $el = $(el);
+  $('h3, .leagueTitle, div.list-group-item.d-flex.gap-3.shadow-sm').each((idx, el) => {
+    const $el = $(el);
 
-      // 1) Update competition dari .leagueTitle
-      if ($el.hasClass('leagueTitle')) {
-        currentCompetition = $el
-          .find('span.align-middle')
-          .first()
-          .text()
-          .trim();
-        return;
-      }
-
-      // 2) Event
-      if ($el.hasClass('list-group-item')) {
-        const eventDiv = $el;
-
-        // time AEDT
-        const timeAedt = eventDiv.find('.eventTime').first().text().trim();
-        if (!timeAedt) return;
-
-        // text utama (home, away, title)
-        const eventText = eventDiv.find('.eventText').first();
-
-        // ambil dua div tim (skip spacer & fs-10)
-        const teamDivs = eventText
-          .children('div')
-          .filter((i, e) => {
-            const cls = $(e).attr('class') || '';
-            return !cls.includes('gameSpacer') && !cls.includes('fs-10');
-          });
-
-        const home = (teamDivs.eq(0).text() || '')
-          .replace(/\s+/g, ' ')
-          .trim();
-        const away = (teamDivs.eq(1).text() || '')
-          .replace(/\s+/g, ' ')
-          .trim();
-
-        // title = baris kecil miring di bawah tim
-        const title = eventText
-          .find('div.fs-10 i')
-          .first()
-          .text()
-          .replace(/\s+/g, ' ')
-          .trim();
-
-        // channels: semua img.stationImg di text-end
-        const channels = [];
-        eventDiv.find('div.text-end img.stationImg').each((i, img) => {
-          let t = $(img).attr('title') || $(img).attr('alt') || '';
-          t = t.replace(/Live on\s*/i, '').trim();
-          if (t) channels.push(t);
-        });
-
-        // SPORT dari <h3> terdekat
-        const sport = findSportForEvent($, eventDiv);
-
-        const timeWita = convertAedtToWita(timeAedt);
-        const witaDate = getWitaDateFromBase(dateInfo.baseDate, timeAedt);
-
-        rows.push({
-          day: pathSuffix,
-          hari: dateInfo.hariIndo,
-          tanggal: dateInfo.tanggalFormatted,
-          time_aedt: timeAedt,
-          time_wita: timeWita,
-          hari_wita: witaDate.hariWita,
-          tanggal_wita: witaDate.tanggalWita,
-          sport,
-          competition: currentCompetition,
-          home,
-          away,
-          title,
-          channels: channels.join(' | '),
-          sourceUrl: url
-        });
-      }
+    if ($el.hasClass('leagueTitle')) {
+      currentCompetition = $el.find('span.align-middle').first().text().trim();
+      return;
     }
-  );
+
+    if ($el.hasClass('list-group-item')) {
+      const eventDiv = $el;
+
+      const timeAedt = eventDiv.find('.eventTime').first().text().trim();
+      if (!timeAedt) return;
+
+      const eventText = eventDiv.find('.eventText').first();
+
+      const teamDivs = eventText.children('div').filter((i, e) => {
+        const cls = $(e).attr('class') || '';
+        return !cls.includes('gameSpacer') && !cls.includes('fs-10');
+      });
+
+      const home = (teamDivs.eq(0).text() || '').replace(/\s+/g, ' ').trim();
+      const away = (teamDivs.eq(1).text() || '').replace(/\s+/g, ' ').trim();
+
+      const title = eventText
+        .find('div.fs-10 i')
+        .first()
+        .text()
+        .replace(/\s+/g, ' ')
+        .trim();
+
+      const channels = [];
+      eventDiv.find('div.text-end img.stationImg').each((i, img) => {
+        let t = $(img).attr('title') || $(img).attr('alt') || '';
+        t = t.replace(/Live on\s*/i, '').trim();
+        if (t) channels.push(t);
+      });
+
+      const sport = findSportForEvent($, eventDiv);
+
+      const timeWita = convertAedtToWita(timeAedt);
+      const witaDate = getWitaDateFromBase(dateInfo.baseDate, timeAedt);
+
+      rows.push({
+        day: pathSuffix,
+        hari: dateInfo.hariIndo,
+        tanggal: dateInfo.tanggalFormatted,
+        time_aedt: timeAedt,
+        time_wita: timeWita,
+        hari_wita: witaDate.hariWita,
+        tanggal_wita: witaDate.tanggalWita,
+        sport,
+        competition: currentCompetition,
+        home,
+        away,
+        title,
+        channels: channels.join(' | ')
+      });
+    }
+  });
 
   console.log(`Rows for ${pathSuffix}:`, rows.length);
   return rows;
@@ -370,28 +294,32 @@ async function scrapeDay(pathSuffix) {
   }
 
   let csv =
-    'day,hari,tanggal,time_aedt,time_wita,hari_wita,tanggal_wita,sport,competition,home,away,title,channels,sourceUrl\n';
+    'day,hari,tanggal,time_aedt,time_wita,hari_wita,tanggal_wita,sport,competition,home,away,title,channels\n';
 
   for (const r of allRows) {
-    csv += `"${r.day}","${r.hari}","${r.tanggal}","${r.time_aedt}","${r.time_wita}","${r.hari_wita}","${r.tanggal_wita}","${r.sport}","${r.competition}","${r.home}","${r.away}","${r.title.replace(
-      /"/g,
-      '""'
-    )}","${r.channels.replace(/"/g, '""')}","${r.sourceUrl}"\n`;
+    csv += `"${r.day}","${r.hari}","${r.tanggal}","${r.time_aedt}","${r.time_wita}","${r.hari_wita}","${r.tanggal_wita}","${r.sport}","${r.competition}","${r.home}","${r.away}","${(r.title || '').replace(/"/g, '""')}","${(r.channels || '').replace(/"/g, '""')}"\n`;
   }
 
   const path = `${process.cwd()}/results.csv`;
   fs.writeFileSync(path, csv);
   console.log('CSV written:', path);
 
+  const WEBAPP_URL = getWebappUrl();
   if (!WEBAPP_URL) {
     console.log('WEBAPP_URL not set, skip sending to Google Sheets');
     return;
   }
 
   try {
-    await axios.post(WEBAPP_URL, { data: allRows });
-    console.log('Sent to Google Sheets ✓');
+    // kirim ARRAY langsung (match GAS production)
+    const res = await axios.post(WEBAPP_URL, allRows, {
+      headers: { "Content-Type": "application/json" },
+      timeout: 30000
+    });
+
+    console.log("GAS status:", res.status);
+    console.log("GAS response:", res.data);
   } catch (e) {
-    console.error('Failed sending to Google Sheets:', e.message);
+    console.error("Failed sending to Google Sheets:", e.response?.data || e.message);
   }
 })();
