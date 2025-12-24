@@ -15,6 +15,9 @@ jobs:
     env:
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
       PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium-browser"
+      # Set di GitHub: Settings → Secrets and variables → Actions → New repository secret
+      # Name: WEBAPP_URL  |  Value: https://script.google.com/macros/s/....../exec
+      WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
 
     steps:
       - name: Checkout repo
