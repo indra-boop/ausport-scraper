@@ -323,3 +323,4 @@ async function scrapeDay(pathSuffix) {
     console.error("Failed sending to Google Sheets:", e.response?.data || e.message);
   }
 })();
+ 
