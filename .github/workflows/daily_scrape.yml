@@ -1,0 +1,29 @@
+name: Daily Scrape
+
+on:
+  schedule:
+    # Jalan setiap hari jam 00:00 UTC (jam 7 atau 8 pagi WIB)
+    - cron: '0 0 * * *'
+  workflow_dispatch: # Biar bisa di-klik manual tombol run
+
+jobs:
+  scrape-and-update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Node
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+
+      - name: Install Dependencies
+        run: npm install axios cheerio
+
+      - name: Run Scraper
+        env:
+          # Masukkan URL Web App GAS kamu di Settings > Secrets GitHub
+          WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
+        run: node index.js 
+        # Ganti index.js dengan nama file script kamu
