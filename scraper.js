@@ -33,6 +33,7 @@ function fallbackDateForDay(pathSuffix) {
   const diff = targetDay - currentDay;
   const baseDate = new Date(now);
   baseDate.setDate(now.getDate() + diff);
+  baseDate.setHours(0, 0, 0, 0);
 
   const hariIndo = baseDate.toLocaleDateString('id-ID', { weekday: 'long' });
   const tanggalFormatted = baseDate.toLocaleDateString('id-ID', {
@@ -64,6 +65,7 @@ function resolveDateForPage($, pathSuffix) {
         const now = new Date();
         const year = now.getFullYear();
         const baseDate = new Date(year, monthIdx, dayNum);
+        baseDate.setHours(0, 0, 0, 0);
 
         const hariIndo = baseDate.toLocaleDateString('id-ID', { weekday: 'long' });
         const tanggalFormatted = baseDate.toLocaleDateString('id-ID', {
@@ -140,7 +142,7 @@ function getWitaDateFromBase(baseDate, timeStr) {
   return { hariWita, tanggalWita };
 }
 
-// Cari SPORT untuk 1 event
+// Cari SPORT untuk 1 event (punya lu)
 function findSportForEvent($, eventDiv) {
   const $event = $(eventDiv);
 
@@ -183,9 +185,138 @@ function findSportForEvent($, eventDiv) {
   return '';
 }
 
-// ----------------------
-// Scraper per hari
-// ----------------------
+/* =========================
+   HOT EVENTS PARSER (NEW)
+   ========================= */
+
+function extractTimeFromHotText(text) {
+  const m = text.match(/\bfrom\s+(\d{1,2}:\d{2}(?:AM|PM))\b/i);
+  return m ? m[1].toUpperCase() : "";
+}
+
+function resolveBaseDateFromHotText(text) {
+  const now = new Date();
+
+  // Tomorrow
+  if (/^Tomorrow\b/i.test(text)) {
+    const d = new Date(now);
+    d.setDate(now.getDate() + 1);
+    d.setHours(0, 0, 0, 0);
+    return d;
+  }
+
+  // "Wed. 25 Feb ..."
+  const m = text.match(/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\.?\s+(\d{1,2})\s+([A-Za-z]+)\b/i);
+  if (m) {
+    const dayNum = parseInt(m[2], 10);
+    const monthRaw = m[3];
+    const monthName = monthRaw.charAt(0).toUpperCase() + monthRaw.slice(1).toLowerCase();
+    const monthIdx = MONTH_MAP[monthName];
+
+    if (monthIdx != null && !Number.isNaN(dayNum)) {
+      const year = now.getFullYear();
+      const d = new Date(year, monthIdx, dayNum);
+      d.setHours(0, 0, 0, 0);
+      return d;
+    }
+  }
+
+  // fallback: today
+  const d = new Date(now);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
+
+function parseHotEvents($) {
+  const rows = [];
+
+  // desktop only -> avoid duplicates with mobile
+  $(".panel-body-desktop .hotEvents .list-group-item").each((idx, el) => {
+    const item = $(el);
+
+    const open = item.find(".openUrl").first();
+    if (!open.length) return;
+
+    const eventPath = (open.attr("data-link") || "").trim();
+
+    const line1 = open.find(".eventText > div").first().text().replace(/\s+/g, " ").trim();
+    const line2 = open.find(".eventText > div").eq(1).text().replace(/\s+/g, " ").trim();
+
+    // line1: "Tomorrow from 2:10AM | Barcelona - Levante"
+    const [left, matchRaw] = line1.split("|").map(v => (v || "").trim());
+    const datetimeText = left || "";
+    const match = matchRaw || "";
+
+    // line2: "Soccer | La Liga"
+    const sport = (line2.split("|")[0] || "").trim();
+    const league = (line2.split("|")[1] || "").replace(/\s+/g, " ").trim();
+
+    // channel
+    let channel = item.find(".ml-10 img").attr("title") || item.find(".ml-10 img").attr("alt") || "";
+    channel = channel.replace(/Live on\s*/i, "").trim();
+
+    // time + date
+    const timeAedt = extractTimeFromHotText(datetimeText); // "2:10AM"
+    const baseDate = resolveBaseDateFromHotText(datetimeText);
+
+    const timeWita = timeAedt ? convertAedtToWita(timeAedt) : "";
+    const witaDate = timeAedt ? getWitaDateFromBase(baseDate, timeAedt) : {
+      hariWita: baseDate.toLocaleDateString('id-ID', { weekday: 'long' }),
+      tanggalWita: baseDate.toLocaleDateString('id-ID', { day:'2-digit', month:'2-digit', year:'2-digit' })
+    };
+
+    const home = match.includes(" - ") ? match.split(" - ")[0].trim() : match.trim();
+    const away = match.includes(" - ") ? match.split(" - ")[1].trim() : "";
+
+    rows.push({
+      day: "hot",
+      hari: baseDate.toLocaleDateString('id-ID', { weekday: 'long' }),
+      tanggal: baseDate.toLocaleDateString('id-ID', { day: '2-digit', month: '2-digit', year: '2-digit' }),
+      time_aedt: timeAedt,
+      time_wita: timeWita,
+      hari_wita: witaDate.hariWita,
+      tanggal_wita: witaDate.tanggalWita,
+      sport,
+      competition: league || "Hot Events",
+      home,
+      away,
+      title: league ? `${sport} | ${league}` : sport,
+      channels: channel,
+      event_url: eventPath ? `https://ausportguide.com/${eventPath}` : ""
+    });
+  });
+
+  return rows;
+}
+
+/* =========================
+   DEDUPE (NEW)
+   ========================= */
+function dedupeRows(rows) {
+  const seen = new Set();
+  const out = [];
+
+  for (const r of rows) {
+    const key = [
+      r.tanggal_wita,
+      r.time_wita,
+      r.sport,
+      r.competition,
+      r.home,
+      r.away,
+      r.channels
+    ].join("|").toLowerCase();
+
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(r);
+  }
+  return out;
+}
+
+/* =========================
+   SCRAPER PER HARI
+   ========================= */
 async function scrapeDay(pathSuffix) {
   const url = `https://ausportguide.com/live-sports-tv-guide/${pathSuffix}`;
   console.log('Scraping:', url);
@@ -263,18 +394,26 @@ async function scrapeDay(pathSuffix) {
         home,
         away,
         title,
-        channels: channels.join(' | ')
+        channels: channels.join(' | '),
+        event_url: "" // optional
       });
     }
   });
+
+  // --- HOT EVENTS (gabung di page ini)
+  const hotRows = parseHotEvents($);
+  if (hotRows.length) {
+    console.log(`HotEvents for ${pathSuffix}:`, hotRows.length);
+    rows.push(...hotRows);
+  }
 
   console.log(`Rows for ${pathSuffix}:`, rows.length);
   return rows;
 }
 
-// ----------------------
-// MAIN
-// ----------------------
+/* =========================
+   MAIN
+   ========================= */
 (async () => {
   const days = DAY_ORDER;
   let allRows = [];
@@ -288,16 +427,20 @@ async function scrapeDay(pathSuffix) {
     }
   }
 
-  console.log('TOTAL rows:', allRows.length);
+  allRows = dedupeRows(allRows);
+
+  console.log('TOTAL rows (deduped):', allRows.length);
   if (allRows.length === 0) {
     console.warn('Warning: no rows scraped. Check source site layout / blocking.');
   }
 
+  // CSV
   let csv =
-    'day,hari,tanggal,time_aedt,time_wita,hari_wita,tanggal_wita,sport,competition,home,away,title,channels\n';
+    'day,hari,tanggal,time_aedt,time_wita,hari_wita,tanggal_wita,sport,competition,home,away,title,channels,event_url\n';
 
   for (const r of allRows) {
-    csv += `"${r.day}","${r.hari}","${r.tanggal}","${r.time_aedt}","${r.time_wita}","${r.hari_wita}","${r.tanggal_wita}","${r.sport}","${r.competition}","${r.home}","${r.away}","${(r.title || '').replace(/"/g, '""')}","${(r.channels || '').replace(/"/g, '""')}"\n`;
+    const safe = (v) => (v ?? '').toString().replace(/"/g, '""');
+    csv += `"${safe(r.day)}","${safe(r.hari)}","${safe(r.tanggal)}","${safe(r.time_aedt)}","${safe(r.time_wita)}","${safe(r.hari_wita)}","${safe(r.tanggal_wita)}","${safe(r.sport)}","${safe(r.competition)}","${safe(r.home)}","${safe(r.away)}","${safe(r.title)}","${safe(r.channels)}","${safe(r.event_url)}"\n`;
   }
 
   const path = `${process.cwd()}/results.csv`;
@@ -323,4 +466,3 @@ async function scrapeDay(pathSuffix) {
     console.error("Failed sending to Google Sheets:", e.response?.data || e.message);
   }
 })();
- 
