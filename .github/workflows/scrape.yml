@@ -2,11 +2,15 @@ name: Scrape Ausport and update Sheet
 
 on:
   schedule:
-    - cron: '0 12 * * *'  # jalan tiap hari jam 12:00 UTC
-  workflow_dispatch:       # bisa di-run manual
+    - cron: "0 12 * * *"  # jalan tiap hari jam 12:00 UTC
+  workflow_dispatch:
 
 permissions:
   contents: write
+
+concurrency:
+  group: scrape-ausport
+  cancel-in-progress: true
 
 jobs:
   scrape:
@@ -14,9 +18,7 @@ jobs:
 
     env:
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
-      PUPPETEER_EXECUTABLE_PATH: "/usr/bin/chromium-browser"
-      # Set di GitHub: Settings → Secrets and variables → Actions → New repository secret
-      # Name: WEBAPP_URL  |  Value: https://script.google.com/macros/s/....../exec
+      # executable path akan kita set setelah install chromium
       WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
 
     steps:
@@ -28,15 +30,17 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: "20"
+          cache: "npm"
 
       - name: Install Chromium
         run: |
           sudo apt-get update
-          sudo apt-get install -y chromium-browser
+          sudo apt-get install -y chromium
+          echo "PUPPETEER_EXECUTABLE_PATH=$(which chromium)" >> $GITHUB_ENV
 
       - name: Install dependencies
-        run: npm install
+        run: npm ci
 
       - name: Run scraper
         run: node scraper.js
@@ -49,13 +53,11 @@ jobs:
 
           FILE="results.csv"
 
-          # Kalau file nggak ada, jangan error
           if [ ! -f "$FILE" ]; then
             echo "CSV not found, skip commit"
             exit 0
           fi
 
-          # Cek apakah file berubah (termasuk untracked)
           if git status --porcelain "$FILE" | grep . > /dev/null; then
             echo "Changes found, committing CSV"
             git add "$FILE"
