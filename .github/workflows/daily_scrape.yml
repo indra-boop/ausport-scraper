@@ -25,5 +25,5 @@ jobs:
         env:
           # Masukkan URL Web App GAS kamu di Settings > Secrets GitHub
           WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
-        run: node index.js 
+        run: node scraper.js 
         # Ganti index.js dengan nama file script kamu
