@@ -22,6 +22,7 @@ jobs:
       WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
       DASHBOARD_INGEST_URL: ${{ secrets.DASHBOARD_INGEST_URL }}
       DASHBOARD_INGEST_TOKEN: ${{ secrets.DASHBOARD_INGEST_TOKEN }}
+      SITE_ACCESS_TOKEN: ${{ secrets.SITE_ACCESS_TOKEN }}
 
     steps:
       - name: Checkout repo
