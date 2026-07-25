@@ -2,7 +2,7 @@ name: Scrape Ausport and update Sheet
 
 on:
   schedule:
-    - cron: "0 12 * * *"  # jalan tiap hari jam 12:00 UTC
+    - cron: "0 0 * * *"  # 08:00 WITA / Asia-Makassar
   workflow_dispatch:
 
 permissions:
@@ -20,6 +20,8 @@ jobs:
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
       # executable path akan kita set setelah install chromium
       WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
+      DASHBOARD_INGEST_URL: ${{ secrets.DASHBOARD_INGEST_URL }}
+      DASHBOARD_INGEST_TOKEN: ${{ secrets.DASHBOARD_INGEST_TOKEN }}
 
     steps:
       - name: Checkout repo
@@ -45,24 +47,22 @@ jobs:
       - name: Run scraper
         run: node scraper.js
 
-      - name: Commit CSV if exists & changed
+      - name: Commit generated schedule if changed
         if: success()
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          FILE="results.csv"
-
-          if [ ! -f "$FILE" ]; then
-            echo "CSV not found, skip commit"
+          if [ ! -f "results.csv" ] || [ ! -f "results.json" ]; then
+            echo "Generated schedule files not found, skip commit"
             exit 0
           fi
 
-          if git status --porcelain "$FILE" | grep . > /dev/null; then
-            echo "Changes found, committing CSV"
-            git add "$FILE"
-            git commit -m "Update $FILE" || echo "Nothing to commit"
+          if git status --porcelain results.csv results.json | grep . > /dev/null; then
+            echo "Changes found, committing schedule"
+            git add results.csv results.json
+            git commit -m "Update daily sports schedule" || echo "Nothing to commit"
             git push
           else
-            echo "No changes in CSV, skip commit"
+            echo "No schedule changes, skip commit"
           fi
