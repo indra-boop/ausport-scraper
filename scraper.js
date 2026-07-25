@@ -453,13 +453,15 @@ async function scrapeDay(pathSuffix) {
 
   const DASHBOARD_INGEST_URL = process.env.DASHBOARD_INGEST_URL;
   const DASHBOARD_INGEST_TOKEN = process.env.DASHBOARD_INGEST_TOKEN;
+  const SITE_ACCESS_TOKEN = process.env.SITE_ACCESS_TOKEN;
 
-  if (DASHBOARD_INGEST_URL && DASHBOARD_INGEST_TOKEN) {
+  if (DASHBOARD_INGEST_URL && DASHBOARD_INGEST_TOKEN && SITE_ACCESS_TOKEN) {
     try {
       const dashboardRes = await axios.post(DASHBOARD_INGEST_URL, allRows, {
         headers: {
           "Content-Type": "application/json",
-          "Authorization": `Bearer ${DASHBOARD_INGEST_TOKEN}`
+          "Authorization": `Bearer ${DASHBOARD_INGEST_TOKEN}`,
+          "OAI-Sites-Authorization": `Bearer ${SITE_ACCESS_TOKEN}`
         },
         timeout: 30000
       });
@@ -469,7 +471,7 @@ async function scrapeDay(pathSuffix) {
       process.exitCode = 1;
     }
   } else {
-    console.log("Dashboard secrets not set, skip dashboard sync");
+    console.log("Dashboard access secrets not set, skip dashboard sync");
   }
 
   const WEBAPP_URL = getWebappUrl();
