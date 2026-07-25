@@ -22,6 +22,7 @@ jobs:
       WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
       DASHBOARD_INGEST_URL: https://ausport-schedule.indra8.chatgpt.site/api/ingest
       DASHBOARD_INGEST_TOKEN: ${{ secrets.DASHBOARD_INGEST_TOKEN }}
+      SITES_BYPASS_TOKEN: ${{ secrets.SITES_BYPASS_TOKEN }}
 
     steps:
       - name: Checkout repo
