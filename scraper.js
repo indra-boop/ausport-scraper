@@ -447,6 +447,31 @@ async function scrapeDay(pathSuffix) {
   fs.writeFileSync(path, csv);
   console.log('CSV written:', path);
 
+  const jsonPath = `${process.cwd()}/results.json`;
+  fs.writeFileSync(jsonPath, JSON.stringify(allRows, null, 2));
+  console.log('JSON written:', jsonPath);
+
+  const DASHBOARD_INGEST_URL = process.env.DASHBOARD_INGEST_URL;
+  const DASHBOARD_INGEST_TOKEN = process.env.DASHBOARD_INGEST_TOKEN;
+
+  if (DASHBOARD_INGEST_URL && DASHBOARD_INGEST_TOKEN) {
+    try {
+      const dashboardRes = await axios.post(DASHBOARD_INGEST_URL, allRows, {
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${DASHBOARD_INGEST_TOKEN}`
+        },
+        timeout: 30000
+      });
+      console.log("Dashboard sync:", dashboardRes.status, dashboardRes.data);
+    } catch (e) {
+      console.error("Dashboard sync failed:", e.response?.data || e.message);
+      process.exitCode = 1;
+    }
+  } else {
+    console.log("Dashboard secrets not set, skip dashboard sync");
+  }
+
   const WEBAPP_URL = getWebappUrl();
   if (!WEBAPP_URL) {
     console.log('WEBAPP_URL not set, skip sending to Google Sheets');
