@@ -23,6 +23,31 @@ function getWebappUrl() {
   return process.env.WEBAPP_URL;
 }
 
+function getDashboardIngestConfig() {
+  return {
+    url: process.env.DASHBOARD_INGEST_URL,
+    token: process.env.DASHBOARD_INGEST_TOKEN
+  };
+}
+
+async function sendToDashboard(rows) {
+  const { url, token } = getDashboardIngestConfig();
+  if (!url || !token) {
+    throw new Error('DASHBOARD_INGEST_URL and DASHBOARD_INGEST_TOKEN must be configured');
+  }
+
+  const response = await axios.post(url, { events: rows }, {
+    headers: {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${token}`
+    },
+    timeout: 30000
+  });
+
+  console.log('Dashboard ingest status:', response.status);
+  console.log('Dashboard ingest response:', response.data);
+}
+
 // fallback kalau header tanggal gagal
 function fallbackDateForDay(pathSuffix) {
   const DAY_MAP = { sun: 0, mon: 1, tue: 2, wed: 3, thu: 4, fri: 5, sat: 6 };
@@ -450,19 +475,18 @@ async function scrapeDay(pathSuffix) {
   const WEBAPP_URL = getWebappUrl();
   if (!WEBAPP_URL) {
     console.log('WEBAPP_URL not set, skip sending to Google Sheets');
-    return;
+  } else {
+    try {
+      const res = await axios.post(WEBAPP_URL, allRows, {
+        headers: { 'Content-Type': 'application/json' },
+        timeout: 30000
+      });
+      console.log('GAS status:', res.status);
+      console.log('GAS response:', res.data);
+    } catch (e) {
+      console.error('Failed sending to Google Sheets:', e.response?.data || e.message);
+    }
   }
 
-  try {
-    // kirim ARRAY langsung (match GAS production)
-    const res = await axios.post(WEBAPP_URL, allRows, {
-      headers: { "Content-Type": "application/json" },
-      timeout: 30000
-    });
-
-    console.log("GAS status:", res.status);
-    console.log("GAS response:", res.data);
-  } catch (e) {
-    console.error("Failed sending to Google Sheets:", e.response?.data || e.message);
-  }
+  await sendToDashboard(allRows);
 })();
