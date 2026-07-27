@@ -1,0 +1,49 @@
+name: Validate Production Ingest Token
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  validate-token:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Validate token without writing data
+        env:
+          DASHBOARD_INGEST_URL: https://schedule.jerconetwork.com/api/ingest
+          DASHBOARD_INGEST_TOKEN: ${{ secrets.DASHBOARD_INGEST_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DASHBOARD_INGEST_TOKEN:-}" ]; then
+            echo "FAILED: GitHub secret is missing or empty"
+            exit 1
+          fi
+
+          status="$(
+            curl               --silent               --show-error               --output response.json               --write-out '%{http_code}'               --request POST               --header 'Content-Type: application/json'               --header "Authorization: Bearer ${DASHBOARD_INGEST_TOKEN}"               --data '{"events":[]}'               "${DASHBOARD_INGEST_URL}"
+          )"
+
+          error_message="$(jq -r '.error // empty' response.json)"
+
+          if [ "$status" = "400" ] &&
+             [ "$error_message" = "Events array is required" ]; then
+            echo "PASS: token parity verified"
+            echo "PASS: empty payload rejected before storage write"
+            exit 0
+          fi
+
+          if [ "$status" = "401" ]; then
+            echo "FAILED: GitHub token does not match VPS INGEST_TOKEN"
+            exit 1
+          fi
+
+          echo "FAILED: unexpected response"
+          echo "HTTP status: $status"
+          echo "API error: $error_message"
+          exit 1
