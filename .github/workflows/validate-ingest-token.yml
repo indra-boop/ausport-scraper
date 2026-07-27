@@ -25,10 +25,18 @@ jobs:
             exit 1
           fi
 
-          status="$(
-            curl               --silent               --show-error               --output response.json               --write-out '%{http_code}'               --request POST               --header 'Content-Type: application/json'               --header "Authorization: Bearer ${DASHBOARD_INGEST_TOKEN}"               --data '{"events":[]}'               "${DASHBOARD_INGEST_URL}"
-          )"
+          curl_args=(
+            --silent
+            --show-error
+            --output response.json
+            --write-out '%{http_code}'
+            --request POST
+            --header 'Content-Type: application/json'
+            --header "Authorization: Bearer ${DASHBOARD_INGEST_TOKEN}"
+            --data '{"events":[]}'
+          )
 
+          status="$(curl "${curl_args[@]}" "${DASHBOARD_INGEST_URL}")"
           error_message="$(jq -r '.error // empty' response.json)"
 
           if [ "$status" = "400" ] &&
