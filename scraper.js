@@ -3,6 +3,11 @@ const cheerio = require('cheerio');
 const fs = require('fs');
 
 const DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+const minimumRows = Number.parseInt(process.env.MINIMUM_EVENT_ROWS ?? '1', 10);
+
+if (!Number.isInteger(minimumRows) || minimumRows < 1) {
+  throw new Error('MINIMUM_EVENT_ROWS must be a positive integer');
+}
 
 const MONTH_MAP = {
   January: 0, Jan: 0,
@@ -459,10 +464,14 @@ async function scrapeDay(pathSuffix) {
   allRows = dedupeRows(allRows);
 
   console.log('TOTAL rows (deduped):', allRows.length);
-  if (allRows.length === 0) {
-    console.warn('Warning: no rows scraped. Check source site layout / blocking.');
+  if (allRows.length < minimumRows) {
+    throw new Error(
+      `Safety guard blocked production sync: received ${allRows.length} row(s), minimum is ${minimumRows}.`
+    );
   }
 
+  // Do not write a replacement CSV or call external ingest endpoints until the
+  // scrape passes the minimum-row guard above.
   // CSV
   let csv =
     'day,hari,tanggal,time_aedt,time_wita,hari_wita,tanggal_wita,sport,competition,home,away,title,channels,event_url\n';
