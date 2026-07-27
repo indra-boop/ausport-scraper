@@ -1,31 +1,54 @@
-name: Scrape Ausport and update destinations
+name: Production Schedule Sync
 
 on:
   schedule:
-    - cron: "0 0 * * *"   # daily 08:00 WITA (00:00 UTC)
+    - cron: "0 0 * * *" # daily 08:00 WITA
   workflow_dispatch:
+  pull_request:
+    paths:
+      - "scraper.js"
+      - ".github/workflows/scrape.yml"
+      - "package.json"
+      - "package-lock.json"
 
 permissions:
   contents: write
 
 concurrency:
-  group: scrape-ausport
-  cancel-in-progress: true
+  group: production-schedule-sync
+  cancel-in-progress: false
 
 jobs:
-  scrape:
+  validate:
+    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout pull request
+        uses: actions/checkout@v4
 
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Validate scraper syntax
+        run: node --check scraper.js
+
+  production-sync:
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
     env:
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
-      # executable path akan kita set setelah install chromium
       WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
-      DASHBOARD_INGEST_URL: https://ausport-schedule.indra8.chatgpt.site/api/ingest
+      DASHBOARD_INGEST_URL: https://schedule.jerconetwork.com/api/ingest
       DASHBOARD_INGEST_TOKEN: ${{ secrets.DASHBOARD_INGEST_TOKEN }}
       SITES_BYPASS_TOKEN: ${{ secrets.SITES_BYPASS_TOKEN }}
+      MINIMUM_EVENT_ROWS: "1"
 
     steps:
-      - name: Checkout repo
+      - name: Checkout main
         uses: actions/checkout@v4
         with:
           persist-credentials: true
@@ -33,39 +56,52 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
           cache: "npm"
 
-      - name: Install Chromium
+      - name: Validate production configuration
+        shell: bash
         run: |
+          set -euo pipefail
+          for name in DASHBOARD_INGEST_TOKEN SITES_BYPASS_TOKEN; do
+            if [ -z "${!name:-}" ]; then
+              echo "Missing required GitHub secret: $name" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install Chromium
+        shell: bash
+        run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y chromium
-          echo "PUPPETEER_EXECUTABLE_PATH=$(which chromium)" >> $GITHUB_ENV
+          echo "PUPPETEER_EXECUTABLE_PATH=$(which chromium)" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: npm ci
 
-      - name: Run scraper
+      - name: Run guarded production sync
         run: node scraper.js
 
-      - name: Commit CSV if exists & changed
-        if: success()
+      - name: Commit verified CSV when changed
+        shell: bash
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          set -euo pipefail
+          file="results.csv"
 
-          FILE="results.csv"
+          if [ ! -f "$file" ]; then
+            echo "No CSV was produced; refusing to commit." >&2
+            exit 1
+          fi
 
-          if [ ! -f "$FILE" ]; then
-            echo "CSV not found, skip commit"
+          if git diff --quiet -- "$file"; then
+            echo "No schedule change detected."
             exit 0
           fi
 
-          if git status --porcelain "$FILE" | grep . > /dev/null; then
-            echo "Changes found, committing CSV"
-            git add "$FILE"
-            git commit -m "Update $FILE" || echo "Nothing to commit"
-            git push
-          else
-            echo "No changes in CSV, skip commit"
-          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -- "$file"
+          git commit -m "chore: sync sports schedule"
+          git push
