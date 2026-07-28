@@ -31,24 +31,22 @@ function getWebappUrl() {
 function getDashboardIngestConfig() {
   return {
     url: process.env.DASHBOARD_INGEST_URL,
-    token: process.env.DASHBOARD_INGEST_TOKEN,
-    sitesBypassToken: process.env.SITES_BYPASS_TOKEN
+    token: process.env.DASHBOARD_INGEST_TOKEN
   };
 }
 
 async function sendToDashboard(rows) {
-  const { url, token, sitesBypassToken } = getDashboardIngestConfig();
-  if (!url || !token || !sitesBypassToken) {
+  const { url, token } = getDashboardIngestConfig();
+  if (!url || !token) {
     throw new Error(
-      'DASHBOARD_INGEST_URL, DASHBOARD_INGEST_TOKEN, and SITES_BYPASS_TOKEN must be configured'
+      'DASHBOARD_INGEST_URL and DASHBOARD_INGEST_TOKEN must be configured'
     );
   }
 
   const response = await axios.post(url, { events: rows }, {
     headers: {
       'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`,
-      'OAI-Sites-Authorization': `Bearer ${sitesBypassToken}`
+      Authorization: `Bearer ${token}`
     },
     timeout: 30000
   });
