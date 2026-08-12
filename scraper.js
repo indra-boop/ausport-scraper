@@ -262,6 +262,7 @@ async function fetchHtml(url) {
   let lastErr;
 
   for (let attempt = 1; attempt <= HTTP_RETRIES; attempt++) {
+    const startedAt = Date.now();
     try {
       const res = await axios.get(url, {
         headers: {
@@ -276,21 +277,71 @@ async function fetchHtml(url) {
         // 3xx yang tersisa berarti redirect loop atau limit terlampaui.
         validateStatus: (s) => s >= 200 && s < 300
       });
+      const bytes = Buffer.byteLength(
+        typeof res.data === 'string' ? res.data : JSON.stringify(res.data || '')
+      );
+      console.log('  HTTP success:', JSON.stringify({
+        url,
+        attempt,
+        status: res.status,
+        durationMs: Date.now() - startedAt,
+        bytes,
+        server: res.headers?.server || null,
+        cfRay: res.headers?.['cf-ray'] || null
+      }));
       return res.data;
     } catch (e) {
       lastErr = e;
       const status = e.response?.status;
+      const diagnostic = describeHttpError(e, url, attempt, Date.now() - startedAt);
+      console.error('  HTTP failure:', JSON.stringify(diagnostic));
       // 4xx (selain 429) tidak akan membaik dengan retry.
-      if (status && status >= 400 && status < 500 && status !== 429) break;
+      if (status && status >= 400 && status < 500 && status !== 429) {
+        console.error(`  Retry stopped: ${status} is a non-retryable client response.`);
+        break;
+      }
       if (attempt < HTTP_RETRIES) {
         const wait = HTTP_RETRY_BASE_MS * attempt;
-        console.warn(`  attempt ${attempt}/${HTTP_RETRIES} failed (${e.message}), retry in ${wait}ms`);
+        console.warn(
+          `  Retry scheduled: attempt ${attempt}/${HTTP_RETRIES}, ` +
+          `cause=${diagnostic.cause}, waitMs=${wait}`
+        );
         await sleep(wait);
       }
     }
   }
 
   throw lastErr;
+}
+
+function classifyHttpError(error) {
+  const status = error.response?.status;
+  const code = String(error.code || '').toUpperCase();
+  if (status === 403) return 'upstream-forbidden-or-waf';
+  if (status === 429) return 'upstream-rate-limit';
+  if (status >= 500) return 'upstream-server-error';
+  if (status >= 400) return 'upstream-client-error';
+  if (code === 'ECONNABORTED' || code === 'ETIMEDOUT') return 'network-timeout';
+  if (code === 'ENOTFOUND' || code === 'EAI_AGAIN') return 'dns-failure';
+  if (code.startsWith('ERR_TLS') || code.includes('CERT')) return 'tls-failure';
+  if (code === 'ECONNRESET' || code === 'ECONNREFUSED') return 'connection-failure';
+  return 'unknown-network-or-upstream-error';
+}
+
+function describeHttpError(error, url, attempt, durationMs) {
+  return {
+    url,
+    attempt,
+    durationMs,
+    cause: classifyHttpError(error),
+    message: error.message || 'Unknown error',
+    code: error.code || null,
+    status: error.response?.status || null,
+    statusText: error.response?.statusText || null,
+    server: error.response?.headers?.server || null,
+    retryAfter: error.response?.headers?.['retry-after'] || null,
+    cfRay: error.response?.headers?.['cf-ray'] || null
+  };
 }
 
 /* ============================================================
@@ -614,34 +665,151 @@ function toCsv(rows) {
   return lines.join('\n') + '\n';
 }
 
+function parseCsv(csv) {
+  const records = [];
+  let row = [];
+  let field = '';
+  let quoted = false;
+
+  for (let index = 0; index < csv.length; index++) {
+    const char = csv[index];
+    if (quoted) {
+      if (char === '"' && csv[index + 1] === '"') {
+        field += '"';
+        index++;
+      } else if (char === '"') {
+        quoted = false;
+      } else {
+        field += char;
+      }
+    } else if (char === '"') {
+      quoted = true;
+    } else if (char === ',') {
+      row.push(field);
+      field = '';
+    } else if (char === '\n') {
+      row.push(field.replace(/\r$/, ''));
+      records.push(row);
+      row = [];
+      field = '';
+    } else {
+      field += char;
+    }
+  }
+
+  if (field || row.length) {
+    row.push(field.replace(/\r$/, ''));
+    records.push(row);
+  }
+  if (records.length < 2) return [];
+
+  const header = records[0];
+  return records.slice(1).filter((values) => values.some(Boolean)).map((values) =>
+    Object.fromEntries(header.map((name, index) => [name, values[index] || '']))
+  );
+}
+
+function parseWitaDate(value) {
+  const match = String(value || '').match(/^(\d{2})\/(\d{2})\/(\d{2})$/);
+  if (!match) return null;
+  return new Date(Date.UTC(2000 + Number(match[3]), Number(match[2]) - 1, Number(match[1])));
+}
+
+function currentTargetDate(nowMs = Date.now()) {
+  const target = partsInTz(nowMs, TARGET_TZ);
+  return new Date(Date.UTC(target.year, target.monthIdx, target.day));
+}
+
+function targetWeekBounds(today = currentTargetDate()) {
+  const mondayOffset = (today.getUTCDay() + 6) % 7;
+  const start = new Date(today);
+  start.setUTCDate(start.getUTCDate() - mondayOffset);
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return { start, end };
+}
+
+function applyCurrentWeekFreshness(incomingRows, previousRows, today = currentTargetDate()) {
+  const { start, end } = targetWeekBounds(today);
+  const inWeek = (row) => {
+    const date = parseWitaDate(row.tanggal_wita);
+    return date && date >= start && date <= end;
+  };
+
+  const incomingWeek = incomingRows.filter(inWeek);
+  const dropped = incomingRows.length - incomingWeek.length;
+  // Preserve already observed rows for today and past days. Future days are
+  // replaced from the newest source snapshot so corrections/removals can land.
+  const archiveRows = previousRows.filter((row) => {
+    const date = parseWitaDate(row.tanggal_wita);
+    return date && date >= start && date <= today;
+  });
+  const merged = dedupeRows([...incomingWeek, ...archiveRows]);
+
+  if (!merged.length) {
+    throw new Error(
+      `Freshness gate blocked sync: no events inside WITA week ` +
+      `${fmtTanggal(start)}-${fmtTanggal(end)}.`
+    );
+  }
+  if (merged.some((row) => !inWeek(row))) {
+    throw new Error('Freshness gate invariant failed: out-of-week event remained.');
+  }
+
+  return { rows: merged, dropped, archived: archiveRows.length, start, end };
+}
+
 async function sendToSheets(webappUrl, rows) {
   if (!webappUrl) {
     console.log('WEBAPP_URL not set — skipping Google Sheets sync');
     return;
   }
+  const startedAt = Date.now();
   try {
     const res = await axios.post(webappUrl, rows, {
       headers: { 'Content-Type': 'application/json' },
       timeout: HTTP_TIMEOUT_MS
     });
-    console.log('Sheets status:', res.status);
-    console.log('Sheets response:', res.data);
+    console.log('Sheets sync success:', JSON.stringify({
+      status: res.status,
+      durationMs: Date.now() - startedAt,
+      rows: rows.length,
+      response: res.data
+    }));
   } catch (e) {
     // Tidak menggagalkan job: CSV sudah tertulis dan dashboard masih perlu diisi.
-    console.error('Failed sending to Google Sheets:', e.response?.data || e.message);
+    console.error('Sheets sync failure:', JSON.stringify({
+      ...describeHttpError(e, 'google-sheets-webapp', 1, Date.now() - startedAt),
+      response: e.response?.data || null,
+      nonFatal: true
+    }));
   }
 }
 
 async function sendToDashboard(url, token, rows) {
-  const res = await axios.post(url, { events: rows }, {
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${token}`
-    },
-    timeout: HTTP_TIMEOUT_MS
-  });
-  console.log('Dashboard ingest status:', res.status);
-  console.log('Dashboard ingest response:', res.data);
+  const startedAt = Date.now();
+  try {
+    const res = await axios.post(url, { events: rows }, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${token}`
+      },
+      timeout: HTTP_TIMEOUT_MS
+    });
+    console.log('Dashboard ingest success:', JSON.stringify({
+      status: res.status,
+      durationMs: Date.now() - startedAt,
+      rows: rows.length,
+      response: res.data
+    }));
+  } catch (e) {
+    console.error('Dashboard ingest failure:', JSON.stringify({
+      ...describeHttpError(e, url, 1, Date.now() - startedAt),
+      response: e.response?.data || null,
+      nonFatal: false
+    }));
+    throw e;
+  }
 }
 
 /* ============================================================
@@ -695,6 +863,18 @@ async function main() {
   }
 
   const csvPath = `${process.cwd()}/results.csv`;
+  const previousRows = fs.existsSync(csvPath)
+    ? parseCsv(fs.readFileSync(csvPath, 'utf8'))
+    : [];
+  const freshness = applyCurrentWeekFreshness(allRows, previousRows);
+  allRows = freshness.rows;
+  console.log(
+    `Freshness gate: WITA ${fmtTanggal(freshness.start)}-${fmtTanggal(freshness.end)}, ` +
+    `${freshness.dropped} out-of-week row(s) dropped, ` +
+    `${freshness.archived} archived current/past row(s) considered, ` +
+    `${allRows.length} row(s) ready.`
+  );
+
   fs.writeFileSync(csvPath, toCsv(allRows));
   console.log('CSV written:', csvPath);
 
@@ -731,7 +911,14 @@ if (require.main === module) {
     extractTimeFromHotText,
     resolveBaseDateFromHotText,
     buildEventUrl,
+    classifyHttpError,
+    describeHttpError,
     toCsv,
+    parseCsv,
+    parseWitaDate,
+    currentTargetDate,
+    targetWeekBounds,
+    applyCurrentWeekFreshness,
     CSV_COLUMNS,
     SOURCE_TZ,
     TARGET_TZ
