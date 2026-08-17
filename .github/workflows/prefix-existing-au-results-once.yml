@@ -1,0 +1,79 @@
+name: Prefix Existing AU Results Once
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/prefix-existing-au-results-once.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  normalize:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Normalize stored CSV channels
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import csv
+          import re
+          from pathlib import Path
+
+          path = Path('results.csv')
+          rows = []
+          with path.open(newline='', encoding='utf-8') as f:
+              reader = csv.DictReader(f)
+              fieldnames = reader.fieldnames
+              if not fieldnames or 'channels' not in fieldnames:
+                  raise SystemExit('results.csv has no channels column')
+              for row in reader:
+                  values = []
+                  for part in (row.get('channels') or '').split('|'):
+                      raw = re.sub(r'^\[[A-Z]{2}\]\s*', '', part.strip(), flags=re.I).strip()
+                      if raw:
+                          values.append(f'[AU] {raw}')
+                  row['channels'] = ' | '.join(values)
+                  rows.append(row)
+
+          with path.open('w', newline='', encoding='utf-8') as f:
+              writer = csv.DictWriter(f, fieldnames=fieldnames, quoting=csv.QUOTE_ALL)
+              writer.writeheader()
+              writer.writerows(rows)
+
+          values = [
+              part.strip()
+              for row in rows
+              for part in (row.get('channels') or '').split('|')
+              if part.strip()
+          ]
+          if not values:
+              raise SystemExit('No channel values found after normalization')
+          bad = [value for value in values if not value.startswith('[AU] ')]
+          if bad:
+              raise SystemExit(f'Unprefixed values remain: {bad[:5]}')
+          print(f'AU prefix verified on {len(values)} stored channel values across {len(rows)} rows')
+          PY
+
+      - name: Commit normalized CSV
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --quiet -- results.csv; then
+            echo 'results.csv already normalized.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add results.csv
+          git diff --cached --check
+          git commit -m 'chore: normalize stored AU channel prefixes'
+          git pull --rebase origin main
+          git push
