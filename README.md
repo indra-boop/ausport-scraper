@@ -116,6 +116,35 @@ Production sync dilindungi dengan:
 - Rollback capability jika ada error
 - Logging & audit trail semua sync operations
 
+#### Row safety guard (baseline-based)
+
+Guard lama memakai threshold statis `MINIMUM_EVENT_ROWS=1`, sehingga selector
+yang rusak dan hanya menyisakan 1 baris tetap lolos sebagai production sync
+yang "valid". Guard sekarang berlapis:
+
+| Variabel | Default | Fungsi |
+| --- | --- | --- |
+| `MINIMUM_EVENT_ROWS` | `50` | Floor absolut jumlah baris hasil scrape (setelah dedupe, sebelum freshness gate). |
+| `MINIMUM_ROWS_PER_DAY` | `1` | Hari yang menghasilkan baris di bawah nilai ini dihitung sebagai hari gagal, sehingga guard ">50% hari gagal" ikut menyala. |
+| `BASELINE_MIN_RATIO` | `0.4` | Baris minimum = `ratio x median` baseline. |
+| `BASELINE_WINDOW` | `7` | Jumlah run sukses terakhir yang dipakai untuk median. |
+| `OVERRIDE_BASELINE_GUARD` | kosong | Escape hatch manual lewat `workflow_dispatch`. Guard baseline dilewati, floor absolut **tetap** berlaku. |
+
+Sync ditolak kalau `rows < MINIMUM_EVENT_ROWS` **atau**
+`rows < ceil(BASELINE_MIN_RATIO x median(baseline))`.
+
+Baseline disimpan di `baseline.json` dan **hanya** diisi dari run yang lulus
+guard — supaya satu run rusak tidak menurunkan baseline dan meloloskan
+kerusakan berikutnya. Median dipakai (bukan rata-rata atau nilai run
+sebelumnya) agar satu outlier tidak menggeser threshold.
+
+Baseline memakai jumlah baris **hasil scrape**, bukan jumlah baris
+`results.csv`. `results.csv` sengaja menyusut tiap Senin saat window minggu
+berjalan di-reset, jadi tidak valid sebagai baseline.
+
+Saat `baseline.json` masih kosong (run pertama setelah perubahan ini), hanya
+floor absolut yang berlaku; rasio baru aktif pada run berikutnya.
+
 ### 5. Ingest
 Data yang sudah valid dikirim ke Jerco Dashboard ingest API:
 ```json

@@ -74,6 +74,17 @@ const HTTP_TIMEOUT_MS = 30000;
 const HTTP_RETRIES = 3;
 const HTTP_RETRY_BASE_MS = 2000;
 
+/* Safety guard: floor absolut + baseline rasio.
+   DEFAULT_MINIMUM_ROWS diturunkan dari histori results.csv 25 Jul-17 Ags 2026
+   (rentang 75-356 baris/minggu setelah freshness gate; jumlah baris hasil
+   scrape pre-freshness selalu lebih besar). 50 dipilih jauh di bawah run
+   normal terendah, tapi cukup tinggi untuk menangkap selector rusak. */
+const DEFAULT_MINIMUM_ROWS = 50;
+const DEFAULT_MINIMUM_ROWS_PER_DAY = 1;
+const DEFAULT_BASELINE_MIN_RATIO = 0.4;
+const DEFAULT_BASELINE_WINDOW = 7;
+const BASELINE_FILE = 'baseline.json';
+
 const CSV_COLUMNS = [
   'day', 'hari', 'tanggal', 'time_aedt', 'time_wita', 'hari_wita',
   'tanggal_wita', 'sport', 'competition', 'home', 'away', 'title',
@@ -87,10 +98,30 @@ const CSV_COLUMNS = [
 function readConfig() {
   const errors = [];
 
-  const rawMin = process.env.MINIMUM_EVENT_ROWS ?? '1';
+  // Absolute floor. Sebelumnya "1" — terlalu permisif: selector rusak yang
+  // menyisakan 1 baris tetap lolos sebagai production sync yang "valid".
+  const rawMin = process.env.MINIMUM_EVENT_ROWS ?? String(DEFAULT_MINIMUM_ROWS);
   const minimumRows = Number.parseInt(rawMin, 10);
   if (!Number.isInteger(minimumRows) || minimumRows < 1) {
     errors.push(`MINIMUM_EVENT_ROWS must be a positive integer, got "${rawMin}"`);
+  }
+
+  const rawPerDay = process.env.MINIMUM_ROWS_PER_DAY ?? String(DEFAULT_MINIMUM_ROWS_PER_DAY);
+  const minimumRowsPerDay = Number.parseInt(rawPerDay, 10);
+  if (!Number.isInteger(minimumRowsPerDay) || minimumRowsPerDay < 0) {
+    errors.push(`MINIMUM_ROWS_PER_DAY must be a non-negative integer, got "${rawPerDay}"`);
+  }
+
+  const rawRatio = process.env.BASELINE_MIN_RATIO ?? String(DEFAULT_BASELINE_MIN_RATIO);
+  const baselineMinRatio = Number.parseFloat(rawRatio);
+  if (!Number.isFinite(baselineMinRatio) || baselineMinRatio <= 0 || baselineMinRatio > 1) {
+    errors.push(`BASELINE_MIN_RATIO must be a number in (0,1], got "${rawRatio}"`);
+  }
+
+  const rawWindow = process.env.BASELINE_WINDOW ?? String(DEFAULT_BASELINE_WINDOW);
+  const baselineWindow = Number.parseInt(rawWindow, 10);
+  if (!Number.isInteger(baselineWindow) || baselineWindow < 1) {
+    errors.push(`BASELINE_WINDOW must be a positive integer, got "${rawWindow}"`);
   }
 
   const dashboardUrl = process.env.DASHBOARD_INGEST_URL;
@@ -104,11 +135,96 @@ function readConfig() {
 
   return {
     minimumRows,
+    minimumRowsPerDay,
+    baselineMinRatio,
+    baselineWindow,
+    // Escape hatch manual (workflow_dispatch) untuk kasus upstream memang
+    // menyusut permanen. Jangan dipakai di jadwal cron.
+    overrideBaselineGuard: /^(1|true|yes)$/i.test(process.env.OVERRIDE_BASELINE_GUARD || ''),
     dashboardUrl,
     dashboardToken,
     // WEBAPP_URL opsional: kalau kosong, langkah Sheets dilewati.
     webappUrl: process.env.WEBAPP_URL || null
   };
+}
+
+/* ============================================================
+   BASELINE ROW GUARD
+   Static threshold tidak bisa membedakan "hari sepi" dari "selector rusak".
+   Guard ini memakai floor absolut + rasio terhadap median run sukses
+   terakhir. Basisnya jumlah baris HASIL SCRAPE (pre-freshness), bukan
+   results.csv — results.csv sengaja menyusut tiap Senin saat window
+   minggu berjalan di-reset, jadi tidak valid sebagai baseline.
+   ============================================================ */
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function readBaseline(baselinePath) {
+  if (!fs.existsSync(baselinePath)) return { runs: [] };
+  try {
+    const parsed = JSON.parse(fs.readFileSync(baselinePath, 'utf8'));
+    const runs = Array.isArray(parsed?.runs) ? parsed.runs : [];
+    return {
+      runs: runs.filter(
+        (run) => run && typeof run.at === 'string' && Number.isInteger(run.scrapedRows)
+      )
+    };
+  } catch (e) {
+    console.warn(`Baseline file unreadable (${e.message}) — treating as empty.`);
+    return { runs: [] };
+  }
+}
+
+function baselineCounts(baseline, window) {
+  return baseline.runs.slice(-window).map((run) => run.scrapedRows);
+}
+
+/**
+ * @returns {{ok: boolean, scrapedRows: number, floor: number,
+ *            baselineMedian: number|null, ratioThreshold: number|null,
+ *            threshold: number, samples: number, reason: string|null}}
+ */
+function evaluateRowGuard({ scrapedRows, counts, minimumRows, baselineMinRatio }) {
+  const baselineMedian = median(counts);
+  const ratioThreshold =
+    baselineMedian === null ? null : Math.ceil(baselineMedian * baselineMinRatio);
+  const threshold = Math.max(minimumRows, ratioThreshold ?? 0);
+
+  let reason = null;
+  if (scrapedRows < minimumRows) {
+    reason =
+      `absolute floor: received ${scrapedRows} row(s), minimum is ${minimumRows}`;
+  } else if (ratioThreshold !== null && scrapedRows < ratioThreshold) {
+    reason =
+      `baseline drop: received ${scrapedRows} row(s), expected at least ` +
+      `${ratioThreshold} (${Math.round(baselineMinRatio * 100)}% of median ` +
+      `${baselineMedian} over last ${counts.length} successful run(s))`;
+  }
+
+  return {
+    ok: reason === null,
+    scrapedRows,
+    floor: minimumRows,
+    baselineMedian,
+    ratioThreshold,
+    threshold,
+    samples: counts.length,
+    reason
+  };
+}
+
+function appendBaselineRun(baselinePath, baseline, entry, window) {
+  // Simpan hanya run yang LULUS guard, supaya satu run rusak tidak menyeret
+  // baseline turun dan membuat guard menyetujui kerusakan berikutnya.
+  const keep = Math.max(window * 3, 30);
+  const runs = [...baseline.runs, entry].slice(-keep);
+  fs.writeFileSync(baselinePath, JSON.stringify({ runs }, null, 2) + '\n');
+  return { runs };
 }
 
 /* ============================================================
@@ -847,7 +963,18 @@ async function main() {
 
   for (const day of DAY_ORDER) {
     try {
-      allRows = allRows.concat(await scrapeDay(day));
+      const dayRows = await scrapeDay(day);
+      // Hari yang mengembalikan 0 baris TANPA melempar error adalah gejala
+      // selector rusak — sebelumnya tidak terhitung sebagai hari gagal
+      // sehingga guard ">50% hari gagal" tidak pernah menyala.
+      if (dayRows.length < cfg.minimumRowsPerDay) {
+        console.error(
+          `Day ${day} returned ${dayRows.length} row(s), below ` +
+          `MINIMUM_ROWS_PER_DAY=${cfg.minimumRowsPerDay} — counted as failed.`
+        );
+        failedDays.push(day);
+      }
+      allRows = allRows.concat(dayRows);
     } catch (e) {
       console.error(`Skipping day ${day}:`, e.message);
       failedDays.push(day);
@@ -862,12 +989,31 @@ async function main() {
     console.warn(`Days that failed: ${failedDays.join(', ')}`);
   }
 
-  // Guard: jangan tulis CSV atau kirim data kalau hasilnya mencurigakan sedikit.
-  if (allRows.length < cfg.minimumRows) {
-    throw new Error(
-      `Safety guard blocked production sync: received ${allRows.length} row(s), ` +
-      `minimum is ${cfg.minimumRows}.`
-    );
+  // Guard: floor absolut + baseline rasio terhadap run sukses sebelumnya.
+  const baselinePath = `${process.cwd()}/${BASELINE_FILE}`;
+  const baseline = readBaseline(baselinePath);
+  const counts = baselineCounts(baseline, cfg.baselineWindow);
+  const verdict = evaluateRowGuard({
+    scrapedRows: allRows.length,
+    counts,
+    minimumRows: cfg.minimumRows,
+    baselineMinRatio: cfg.baselineMinRatio
+  });
+
+  console.log(
+    `Row guard: ${verdict.scrapedRows} row(s) vs threshold ${verdict.threshold} ` +
+    `(floor ${verdict.floor}, baseline median ${verdict.baselineMedian ?? 'n/a'} ` +
+    `over ${verdict.samples} run(s), ratio ${cfg.baselineMinRatio}).`
+  );
+
+  if (!verdict.ok) {
+    if (cfg.overrideBaselineGuard && verdict.scrapedRows >= cfg.minimumRows) {
+      console.warn(
+        `OVERRIDE_BASELINE_GUARD set — proceeding despite: ${verdict.reason}`
+      );
+    } else {
+      throw new Error(`Safety guard blocked production sync: ${verdict.reason}.`);
+    }
   }
 
   // Guard: lebih dari separuh hari gagal berarti situs atau selector berubah.
@@ -896,6 +1042,20 @@ console.log(
 
   fs.writeFileSync(csvPath, toCsv(allRows));
   console.log('CSV written:', csvPath);
+
+  // Baseline hanya di-update dari run yang lulus guard.
+  appendBaselineRun(
+    baselinePath,
+    baseline,
+    {
+      at: new Date().toISOString(),
+      scrapedRows: verdict.scrapedRows,
+      publishedRows: allRows.length,
+      failedDays: failedDays.length
+    },
+    cfg.baselineWindow
+  );
+  console.log('Baseline updated:', baselinePath);
 
   await sendToSheets(cfg.webappUrl, allRows);
   await sendToDashboard(cfg.dashboardUrl, cfg.dashboardToken, allRows);
@@ -941,6 +1101,15 @@ if (require.main === module) {
     currentTargetDate,
     targetWeekBounds,
     applyCurrentWeekFreshness,
+    median,
+    readBaseline,
+    baselineCounts,
+    evaluateRowGuard,
+    appendBaselineRun,
+    DEFAULT_MINIMUM_ROWS,
+    DEFAULT_BASELINE_MIN_RATIO,
+    DEFAULT_BASELINE_WINDOW,
+    BASELINE_FILE,
     CSV_COLUMNS,
     SOURCE_TZ,
     TARGET_TZ,

@@ -4,9 +4,19 @@ on:
   schedule:
     - cron: "0 0 * * *" # daily production sync at 08:00 WITA
   workflow_dispatch:
+    inputs:
+      override_baseline_guard:
+        description: >-
+          Lewati guard baseline (TETAP menghormati floor absolut).
+          Pakai hanya kalau sumber memang menyusut permanen dan sudah
+          diverifikasi manual.
+        type: boolean
+        default: false
   pull_request:
     paths:
       - "scraper.js"
+      - "test-guard.js"
+      - "test-freshness.js"
       - ".github/workflows/scrape.yml"
       - "package.json"
       - "package-lock.json"
@@ -32,8 +42,16 @@ jobs:
         with:
           node-version: "22"
 
+      - name: Install dependencies
+        run: npm ci
+
       - name: Validate scraper syntax
         run: node --check scraper.js
+
+      - name: Run guard and freshness tests
+        run: |
+          node test-guard.js
+          node test-freshness.js
 
   production-sync:
     if: github.event_name != 'pull_request'
@@ -44,7 +62,13 @@ jobs:
       WEBAPP_URL: ${{ secrets.WEBAPP_URL }}
       DASHBOARD_INGEST_URL: https://schedule.jerconetwork.com/api/ingest
       DASHBOARD_INGEST_TOKEN: ${{ secrets.DASHBOARD_INGEST_TOKEN }}
-      MINIMUM_EVENT_ROWS: "1"
+      # Floor absolut. Baseline rasio (BASELINE_MIN_RATIO x median
+      # BASELINE_WINDOW run sukses terakhir) berlaku di atasnya.
+      MINIMUM_EVENT_ROWS: "50"
+      MINIMUM_ROWS_PER_DAY: "1"
+      BASELINE_MIN_RATIO: "0.4"
+      BASELINE_WINDOW: "7"
+      OVERRIDE_BASELINE_GUARD: ${{ inputs.override_baseline_guard && '1' || '' }}
 
     steps:
       - name: Checkout main
@@ -81,27 +105,33 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
+      - name: Run guard and freshness tests
+        run: |
+          node test-guard.js
+          node test-freshness.js
+
       - name: Run guarded production sync
         run: node scraper.js
 
-      - name: Commit verified CSV when changed
+      - name: Commit verified CSV and baseline when changed
         shell: bash
         run: |
           set -euo pipefail
           file="results.csv"
+          baseline="baseline.json"
 
           if [ ! -f "$file" ]; then
             echo "No CSV was produced; refusing to commit." >&2
             exit 1
           fi
 
-          if git diff --quiet -- "$file"; then
+          if git diff --quiet -- "$file" "$baseline"; then
             echo "No schedule change detected."
             exit 0
           fi
 
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add -- "$file"
+          git add -- "$file" "$baseline"
           git commit -m "chore: sync sports schedule"
           git push
