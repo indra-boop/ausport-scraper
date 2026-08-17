@@ -50,6 +50,7 @@ const SOURCE_TZ = 'Australia/Sydney';
 
 /** Zona waktu tujuan. WITA = UTC+8, tidak memakai DST. */
 const TARGET_TZ = 'Asia/Makassar';
+const COUNTRY_CODE = 'AU';
 
 const DAY_ORDER = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const HARI_ID = ['Minggu', 'Senin', 'Selasa', 'Rabu', 'Kamis', 'Jumat', 'Sabtu'];
@@ -567,11 +568,26 @@ function dedupeRows(rows) {
   return [...byKey.values()];
 }
 
+function stripCountryPrefix(name) {
+  return String(name || '').replace(/^\[[A-Z]{2}\]\s*/i, '').trim();
+}
+
+function prefixChannelName(name, countryCode = COUNTRY_CODE) {
+  const raw = stripCountryPrefix(name);
+  return raw ? `[${countryCode}] ${raw}` : '';
+}
+
 function splitChannels(s) {
   return String(s || '')
     .split('|')
-    .map((v) => v.trim())
+    .map((v) => stripCountryPrefix(v))
     .filter(Boolean);
+}
+
+function prefixChannelList(s) {
+  return splitChannels(s)
+    .map((name) => prefixChannelName(name))
+    .join(' | ');
 }
 
 /* ============================================================
@@ -867,8 +883,11 @@ async function main() {
     ? parseCsv(fs.readFileSync(csvPath, 'utf8'))
     : [];
   const freshness = applyCurrentWeekFreshness(allRows, previousRows);
-  allRows = freshness.rows;
-  console.log(
+  allRows = freshness.rows.map((row) => ({
+  ...row,
+  channels: prefixChannelList(row.channels),
+}));
+console.log(
     `Freshness gate: WITA ${fmtTanggal(freshness.start)}-${fmtTanggal(freshness.end)}, ` +
     `${freshness.dropped} out-of-week row(s) dropped, ` +
     `${freshness.archived} archived current/past row(s) considered, ` +
@@ -908,6 +927,9 @@ if (require.main === module) {
     fmtTanggal,
     dedupeRows,
     splitChannels,
+    stripCountryPrefix,
+    prefixChannelName,
+    prefixChannelList,
     extractTimeFromHotText,
     resolveBaseDateFromHotText,
     buildEventUrl,
@@ -921,6 +943,7 @@ if (require.main === module) {
     applyCurrentWeekFreshness,
     CSV_COLUMNS,
     SOURCE_TZ,
-    TARGET_TZ
+    TARGET_TZ,
+    COUNTRY_CODE
   };
 }
