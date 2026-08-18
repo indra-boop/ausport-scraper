@@ -1,3 +1,10 @@
 {
-  "runs": []
+  "runs": [
+    {
+      "at": "2026-08-18T00:39:12.807Z",
+      "scrapedRows": 221,
+      "publishedRows": 255,
+      "failedDays": 2
+    }
+  ]
 }
