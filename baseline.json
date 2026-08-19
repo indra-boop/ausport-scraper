@@ -5,6 +5,12 @@
       "scrapedRows": 221,
       "publishedRows": 255,
       "failedDays": 2
+    },
+    {
+      "at": "2026-08-19T00:38:58.218Z",
+      "scrapedRows": 250,
+      "publishedRows": 285,
+      "failedDays": 2
     }
   ]
 }
