@@ -17,6 +17,8 @@ on:
       - "scraper.js"
       - "test-guard.js"
       - "test-freshness.js"
+      - "test-scraper-markup.js"
+      - "test-fixtures/**"
       - ".github/workflows/scrape.yml"
       - "package.json"
       - "package-lock.json"
@@ -49,10 +51,8 @@ jobs:
       - name: Validate scraper syntax
         run: node --check scraper.js
 
-      - name: Run guard and freshness tests
-        run: |
-          node test-guard.js
-          node test-freshness.js
+      - name: Run parser, guard and freshness tests
+        run: npm test
 
   production-sync:
     if: github.event_name != 'pull_request'
@@ -105,10 +105,8 @@ jobs:
       - name: Install dependencies
         run: npm ci
 
-      - name: Run guard and freshness tests
-        run: |
-          node test-guard.js
-          node test-freshness.js
+      - name: Run parser, guard and freshness tests
+        run: npm test
 
       - name: Run guarded production sync
         run: node scraper.js

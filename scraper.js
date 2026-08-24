@@ -589,7 +589,7 @@ function parseHotEvents($) {
   const rows = [];
 
   // Desktop saja, supaya tidak dobel dengan versi mobile.
-  $('.panel-body-desktop .hotEvents .list-group-item').each((idx, el) => {
+  $('.hotEvents .panel-body-desktop .list-group-item').each((idx, el) => {
     const item = $(el);
     const open = item.find('.openUrl').first();
     if (!open.length) return;
@@ -715,6 +715,10 @@ async function scrapeDay(pathSuffix) {
   console.log('Scraping:', url);
 
   const html = await fetchHtml(url);
+  return parseDayHtml(html, pathSuffix);
+}
+
+function parseDayHtml(html, pathSuffix) {
   const $ = cheerio.load(html);
   const dateInfo = resolveDateForPage($, pathSuffix);
 
@@ -731,7 +735,7 @@ async function scrapeDay(pathSuffix) {
 
     if (!$el.hasClass('list-group-item')) return;
 
-    const timeSource = $el.find('.eventTime').first().text().trim();
+    const timeSource = $el.find('.eventTime, .eventTimePast').first().text().trim();
     if (!timeSource) return;
 
     const eventText = $el.find('.eventText').first();
@@ -741,11 +745,19 @@ async function scrapeDay(pathSuffix) {
       return !cls.includes('gameSpacer') && !cls.includes('fs-10');
     });
 
-    const home = (teamDivs.eq(0).text() || '').replace(/\s+/g, ' ').trim();
-    const away = (teamDivs.eq(1).text() || '').replace(/\s+/g, ' ').trim();
+    let home = (teamDivs.eq(0).text() || '').replace(/\s+/g, ' ').trim();
+    let away = (teamDivs.eq(1).text() || '').replace(/\s+/g, ' ').trim();
 
-    const title = eventText.find('div.fs-10 i').first()
+    let title = eventText.find('div.fs-10 i').first()
       .text().replace(/\s+/g, ' ').trim();
+
+    // Non-team events (cycling stages, rowing sessions, etc.) use h6/p
+    // instead of the two team divs used by match fixtures.
+    if (!home && !away) {
+      home = eventText.find('h6').first().text().replace(/\s+/g, ' ').trim();
+      away = eventText.find('p').first().text().replace(/\s+/g, ' ').trim();
+      if (!title) title = away || home;
+    }
 
     const channels = [];
     $el.find('div.text-end img.stationImg').each((i, img) => {
@@ -1093,6 +1105,7 @@ if (require.main === module) {
     extractTimeFromHotText,
     resolveBaseDateFromHotText,
     buildEventUrl,
+    parseDayHtml,
     classifyHttpError,
     describeHttpError,
     toCsv,
