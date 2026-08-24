@@ -35,6 +35,12 @@
       "scrapedRows": 327,
       "publishedRows": 334,
       "failedDays": 0
+    },
+    {
+      "at": "2026-08-24T20:10:39.365Z",
+      "scrapedRows": 327,
+      "publishedRows": 343,
+      "failedDays": 0
     }
   ]
 }
