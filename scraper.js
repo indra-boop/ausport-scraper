@@ -921,7 +921,7 @@ async function sendToSheets(webappUrl, rows) {
 async function sendToDashboard(url, token, rows) {
   const startedAt = Date.now();
   try {
-    const res = await axios.post(url, { events: rows }, {
+    const res = await axios.post(url, { source: 'ausport', events: rows }, {
       headers: {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`

@@ -14,7 +14,7 @@ jobs:
     steps:
       - name: Validate token without writing data
         env:
-          DASHBOARD_INGEST_URL: https://schedule.jerconetwork.com/api/ingest
+          DASHBOARD_INGEST_URL: https://schedule.jerconetwork.com/api/ingest/v2
           DASHBOARD_INGEST_TOKEN: ${{ secrets.DASHBOARD_INGEST_TOKEN }}
         shell: bash
         run: |
@@ -33,14 +33,14 @@ jobs:
             --request POST
             --header 'Content-Type: application/json'
             --header "Authorization: Bearer ${DASHBOARD_INGEST_TOKEN}"
-            --data '{"events":[]}'
+            --data '{"source":"ausport","events":[]}'
           )
 
           status="$(curl "${curl_args[@]}" "${DASHBOARD_INGEST_URL}")"
           error_message="$(jq -r '.error // empty' response.json)"
 
           if [ "$status" = "400" ] &&
-             [ "$error_message" = "Events array is required" ]; then
+             [ "$error_message" = "events must be a non-empty array" ]; then
             echo "PASS: token parity verified"
             echo "PASS: empty payload rejected before storage write"
             exit 0
