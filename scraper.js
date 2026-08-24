@@ -24,8 +24,8 @@
  *           duplikat. Channel sekarang digabung.
  *   [FIX-8] Unhandled promise rejection ditangani eksplisit.
  *
- * SKEMA OUTPUT TIDAK BERUBAH. Nama kolom CSV dan field JSON identik dengan
- * versi lama supaya doPost() dan dashboard tidak perlu ikut diubah.
+ * Skema output tetap kompatibel dan kini menambahkan jam/tanggal selesai WITA.
+ * Consumer lama tetap dapat mengabaikan kolom tambahan tersebut.
  * Kolom `time_aedt` tetap bernama demikian meski isinya waktu sumber apa
  * adanya (bisa AEST maupun AEDT) — mengganti namanya akan memutus
  * downstream yang tidak terlihat dari repo ini.
@@ -87,7 +87,8 @@ const BASELINE_FILE = 'baseline.json';
 
 const CSV_COLUMNS = [
   'day', 'hari', 'tanggal', 'time_aedt', 'time_wita', 'hari_wita',
-  'tanggal_wita', 'sport', 'competition', 'home', 'away', 'title',
+  'tanggal_wita', 'end_time_wita', 'end_tanggal_wita',
+  'sport', 'competition', 'home', 'away', 'title',
   'channels', 'event_url'
 ];
 
@@ -718,6 +719,26 @@ async function scrapeDay(pathSuffix) {
   return parseDayHtml(html, pathSuffix);
 }
 
+/** Parse endDate/endTime UTC dari konfigurasi tombol kalender sebuah kartu. */
+function getCalendarEndWita($event) {
+  const script = $event.find('.flex-shrink-0 script').first().html() || '';
+  const dateMatch = script.match(/\bendDate\s*:\s*["'](\d{4}-\d{2}-\d{2})["']/);
+  const timeMatch = script.match(/\bendTime\s*:\s*["'](\d{1,2}:\d{2})["']/);
+  if (!dateMatch || !timeMatch) return { endTimeWita: '', endTanggalWita: '' };
+
+  const utc = Date.parse(`${dateMatch[1]}T${timeMatch[1]}:00Z`);
+  if (!Number.isFinite(utc)) return { endTimeWita: '', endTanggalWita: '' };
+
+  const w = partsInTz(utc, TARGET_TZ);
+  const witaDate = new Date(Date.UTC(w.year, w.monthIdx, w.day));
+  const ampm = w.hour >= 12 ? 'PM' : 'AM';
+  const hour = w.hour % 12 === 0 ? 12 : w.hour % 12;
+  return {
+    endTimeWita: `${hour}:${pad2(w.minute)}${ampm}`,
+    endTanggalWita: fmtTanggal(witaDate)
+  };
+}
+
 function parseDayHtml(html, pathSuffix) {
   const $ = cheerio.load(html);
   const dateInfo = resolveDateForPage($, pathSuffix);
@@ -751,12 +772,13 @@ function parseDayHtml(html, pathSuffix) {
     let title = eventText.find('div.fs-10 i').first()
       .text().replace(/\s+/g, ' ').trim();
 
-    // Non-team events (cycling stages, rowing sessions, etc.) use h6/p
-    // instead of the two team divs used by match fixtures.
+    // Non-team events use h6 for the event name and p for its description.
+    // Do not treat the description as an "away" participant.
     if (!home && !away) {
       home = eventText.find('h6').first().text().replace(/\s+/g, ' ').trim();
-      away = eventText.find('p').first().text().replace(/\s+/g, ' ').trim();
-      if (!title) title = away || home;
+      const description = eventText.find('p').first().text().replace(/\s+/g, ' ').trim();
+      away = '';
+      if (!title) title = description || home;
     }
 
     const channels = [];
@@ -767,6 +789,7 @@ function parseDayHtml(html, pathSuffix) {
     });
 
     const witaDate = getWitaDateFromBase(dateInfo.baseDate, timeSource);
+    const calendarEnd = getCalendarEndWita($el);
 
     rows.push({
       day: pathSuffix,
@@ -776,6 +799,8 @@ function parseDayHtml(html, pathSuffix) {
       time_wita: convertSourceTimeToWita(timeSource, dateInfo.baseDate),
       hari_wita: witaDate.hariWita,
       tanggal_wita: witaDate.tanggalWita,
+      end_time_wita: calendarEnd.endTimeWita,
+      end_tanggal_wita: calendarEnd.endTanggalWita,
       sport: findSportForEvent($, $el),
       competition: currentCompetition,
       home,
@@ -1094,6 +1119,7 @@ if (require.main === module) {
     parseAmPm,
     convertSourceTimeToWita,
     getWitaDateFromBase,
+    getCalendarEndWita,
     resolveYear,
     fmtHari,
     fmtTanggal,

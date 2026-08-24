@@ -36,8 +36,10 @@ const fixture = (name) => fs.readFileSync(
   assert.equal(rows[0].sport, 'Sailing / Boating');
   assert.equal(rows[0].competition, 'World Rowing Championships');
   assert.equal(rows[0].home, 'World Rowing Championships');
-  assert.equal(rows[0].away, 'Day 2 Session 1');
+  assert.equal(rows[0].away, '');
   assert.equal(rows[0].title, 'Day 2 Session 1');
+  assert.equal(rows[0].end_time_wita, '9:30PM');
+  assert.equal(rows[0].end_tanggal_wita, '25/08/26');
   assert.equal(rows[0].channels, 'Fox Sports 506 | Kayo Sports');
 }
 
