@@ -1,19 +1,17 @@
 'use strict';
 const fs = require('fs');
 const path = require('path');
+const zlib = require('zlib');
 const assembled = path.join(__dirname, '.scraper.assembled.js');
 if (!fs.existsSync(assembled) || process.env.AUSPORT_REBUILD === '1') {
-  for (let i = 0; i < 4; i++) {
-    let chunk = '';
-    for (let j = 0; j < 4; j++) {
-      chunk += fs.readFileSync(path.join(__dirname, 'scraper-chunks/t' + i + '_' + j + '.txt'), 'utf8');
-    }
-    fs.writeFileSync(path.join(__dirname, 'scraper-chunks/t' + i + '.js'), chunk);
+  let b64 = '';
+  for (let i = 0; ; i++) {
+    const name = 'g' + String(i).padStart(2, '0') + '.b64';
+    const fp = path.join(__dirname, 'scraper-chunks', name);
+    if (!fs.existsSync(fp)) break;
+    b64 += fs.readFileSync(fp, 'utf8').trim();
   }
-  let body = '';
-  for (let i = 0; i < 4; i++) {
-    body += require('./scraper-chunks/t' + i + '.js');
-  }
-  fs.writeFileSync(assembled, body);
+  const buf = zlib.gunzipSync(Buffer.from(b64, 'base64'));
+  fs.writeFileSync(assembled, buf);
 }
 module.exports = require(assembled);
