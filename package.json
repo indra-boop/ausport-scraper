@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node scraper.js",
-    "test": "node test-guard.js && node test-freshness.js && node test-scraper-markup.js"
+    "test": "node test-guard.js && node test-freshness.js && node test-scraper-markup.js && node test-sanitize-title.js"
   },
   "dependencies": {
     "axios": "^1.13.2",
