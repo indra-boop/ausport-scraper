@@ -1,4 +1,8 @@
 node_modules/
-*.log
-*.csv
-!results.csv
+.env
+.scraper.assembled.js
+scraper.full.backup.js
+scraper-chunks/
+mcp-batches/
+mcp-push-payloads/
+.push-scraper.json
