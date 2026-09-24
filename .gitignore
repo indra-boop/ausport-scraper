@@ -1,4 +1,3 @@
 node_modules/
+.scraper.assembled.js
 *.log
-*.csv
-!results.csv
