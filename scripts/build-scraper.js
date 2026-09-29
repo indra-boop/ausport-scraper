@@ -103,9 +103,9 @@ function applyChannelMerge(src) {
     const freshnessAnchor = 'const freshness = applyCurrentWeekFreshness(allRows, previousRows);';
     if (!out.includes(freshnessAnchor)) throw new Error('No freshness anchor');
     out = out.replace(freshnessAnchor,
-      'const eligibleRows = allRows.filter(isEligibleLiveGuideRow);\\n' +
-      '  const eligiblePrevious = previousRows.filter(isEligibleLiveGuideRow);\\n' +
-      '  console.log(`Live guide filter: ${eligibleRows.length}/${allRows.length} rows eligible`);\\n' +
+      'const eligibleRows = allRows.filter(isEligibleLiveGuideRow);\n' +
+      '  const eligiblePrevious = previousRows.filter(isEligibleLiveGuideRow);\n' +
+      '  console.log(`Live guide filter: ${eligibleRows.length}/${allRows.length} rows eligible`);\n' +
       '  const freshness = applyCurrentWeekFreshness(eligibleRows, eligiblePrevious);');
   }
 
