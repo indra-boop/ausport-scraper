@@ -88,6 +88,27 @@ function applyChannelMerge(src) {
     );
   }
 
+  // Keep integrity guard on all parsed rows, then exclude clear non-live programmes
+  // from CSV and ingest. Apply to archive too so old replay rows do not persist.
+  const liveFilter = `\nfunction isEligibleLiveGuideRow(row) {\n  const text = [row.title, row.competition, row.home, row.away].join(' ');\n  return !/\\b(?:replay|re-?run|highlights?|mini match|best of|classic|magazine|documentary|preview|review|recap|tayang ulang|siaran ulang|laga tunda)\\b/i.test(text);\n}\n`;
+  if (!out.includes('function isEligibleLiveGuideRow')) {
+    const anchor = out.indexOf('function dedupeRows(');
+    if (anchor < 0) throw new Error('No dedupeRows anchor for live filter');
+    out = out.slice(0, anchor) + liveFilter + out.slice(anchor);
+  }
+  const dedupeAnchor = 'allRows = dedupeRows(allRows);';
+  if (!out.includes('allRows = dedupeRows(allRows.filter(isEligibleLiveGuideRow));')) {
+    if (!out.includes(dedupeAnchor)) throw new Error('No publish dedupe anchor');
+    // Preserve scraped row count for the integrity guard; filter after it.
+    const freshnessAnchor = 'const freshness = applyCurrentWeekFreshness(allRows, previousRows);';
+    if (!out.includes(freshnessAnchor)) throw new Error('No freshness anchor');
+    out = out.replace(freshnessAnchor,
+      'const eligibleRows = allRows.filter(isEligibleLiveGuideRow);\\n' +
+      '  const eligiblePrevious = previousRows.filter(isEligibleLiveGuideRow);\\n' +
+      '  console.log(`Live guide filter: ${eligibleRows.length}/${allRows.length} rows eligible`);\\n' +
+      '  const freshness = applyCurrentWeekFreshness(eligibleRows, eligiblePrevious);');
+  }
+
   if (!out.includes('mergeEventChannels($, $el)')) {
     throw new Error('mergeEventChannels call not present after patch');
   }
@@ -103,6 +124,7 @@ function ensureExports(src) {
     'mergeEventChannels',
     'uniqueChannels',
     'isEmptyGrandPrixSundayPreview',
+    'isEligibleLiveGuideRow',
   ];
   let out = src;
   const exportAnchor = out.lastIndexOf('module.exports = {');
