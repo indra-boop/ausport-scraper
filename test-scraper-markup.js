@@ -44,3 +44,9 @@ const fixture = (name) => fs.readFileSync(
 }
 
 console.log('test-scraper-markup.js: all assertions passed');
+
+const liveFilter = require('./scraper').isEligibleLiveGuideRow;
+if (typeof liveFilter !== 'function') throw new Error('live guide filter missing');
+if (liveFilter({ title: 'Grand Final Replay', competition: '', home: '', away: '' })) throw new Error('replay leaked');
+if (liveFilter({ title: 'Sports Highlights', competition: '', home: '', away: '' })) throw new Error('highlights leaked');
+if (!liveFilter({ title: 'Grand Final', competition: 'AFL', home: 'A', away: 'B' })) throw new Error('match filtered');
