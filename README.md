@@ -90,6 +90,10 @@ RestartSec=30
 WantedBy=multi-user.target
 ```
 
+## Kebijakan publikasi live
+
+Sumber adalah halaman `Live Sports TV Guide`. Baris dengan penanda jelas `replay`, `highlights`, `mini match`, `best of`, `classic`, `magazine`, `documentary`, `preview`, `review`, `recap`, `tayang ulang`, `siaran ulang`, atau `laga tunda` dikeluarkan dari `results.csv` dan ingest. Guard kelengkapan tetap menghitung hasil scrape sebelum filter; angka guard bukan jumlah siaran live. Baris tanpa penanda replay dari halaman ini adalah **ASSUMPTION** live, karena sumber tidak menyediakan flag live per acara. Jangan beri badge LIVE otoritatif hanya dari scraper ini.
+
 ## Cara Kerja
 
 ### 1. Scraping
