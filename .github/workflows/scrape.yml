@@ -139,7 +139,7 @@ jobs:
       - name: Guard baseline freshness
         shell: bash
         env:
-          MAX_BASELINE_AGE_HOURS: "30"
+          MAX_BASELINE_AGE_HOURS: "26"
         run: |
           set -euo pipefail
           last="$(jq -r '.runs[-1].at // empty' baseline.json)"
@@ -180,4 +180,3 @@ jobs:
                 ...context.repo, title, body, labels: ['sync-failure']
               });
             }
-
