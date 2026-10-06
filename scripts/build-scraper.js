@@ -112,6 +112,18 @@ function applyChannelMerge(src) {
   if (!out.includes('mergeEventChannels($, $el)')) {
     throw new Error('mergeEventChannels call not present after patch');
   }
+
+  // Day pages carry the event link on the card's .openUrl div (data-link), not
+  // on an <a>. parseDayHtml used to hard-code event_url: '' so only hot-event
+  // rows had a URL. Read it the same way parseHotEvents does.
+  const dayEventUrl =
+    "event_url: buildEventUrl(($el.find('.openUrl').first().attr('data-link') || '').trim())";
+  if (!out.includes(dayEventUrl)) {
+    const emptyUrlRe = /(channels:\s*channels\.join\(' \| '\),\s*\n\s*)event_url:\s*''/;
+    if (!emptyUrlRe.test(out)) throw new Error('No day-page event_url anchor');
+    out = out.replace(emptyUrlRe, `$1${dayEventUrl}`);
+    console.log('Wired day-page event_url from data-link');
+  }
   return ensureExports(out);
 }
 
