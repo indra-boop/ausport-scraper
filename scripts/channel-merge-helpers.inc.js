@@ -80,22 +80,49 @@ function collapseRepeatedText(text) {
 function isMarketingBlurb(text) {
   const s = String(text || '').trim();
   if (s.length < 80) return false;
-  return (
-    /exclusive coverage/i.test(s) ||
-    /battle it out across the globe/i.test(s) ||
-    (/beIN SPORTS/i.test(s) && /ATP Tour/i.test(s) && /#1/.test(s))
-  );
+  if (/exclusive coverage/i.test(s)) return true;
+  if (/battle it out/i.test(s)) return true;
+  if (/up and coming talent/i.test(s)) return true;
+  if (/watch every game/i.test(s)) return true;
+  if (/beIN SPORTS/i.test(s) && /ATP Tour/i.test(s)) return true;
+  // Long prose / promo copy (Nations League blurbs, NFL previews, etc.)
+  if (s.length >= 120 && /\b(edition|season|features|coverage|contest|determination|inspire[ds]?)\b/i.test(s)) {
+    return true;
+  }
+  if (s.length >= 140 && /\.\s+[A-Z]/.test(s)) return true;
+  return false;
+}
+
+/** Split "short | promo…" — keep competition-like short suffixes (e.g. "| Bundesliga"). */
+function splitAusportTitlePipe(title) {
+  const s = String(title || '').trim();
+  const idx = s.indexOf(' | ');
+  if (idx < 0) return { title: s, description: '' };
+  const head = s.slice(0, idx).trim();
+  const tail = s.slice(idx + 3).trim();
+  const stripPromo =
+    Boolean(head) &&
+    (tail.length >= 60 ||
+      isMarketingBlurb(tail) ||
+      isMarketingBlurb(s) ||
+      /\b(edition|season|features|watch every|battle it out|coverage|determination|inspire[ds]?)\b/i.test(tail));
+  if (stripPromo) return { title: head, description: tail };
+  return { title: s, description: '' };
+}
+
+function titleFallback(home, away, competition) {
+  if (home && away) return `${home} vs ${away}`;
+  if (home) return home;
+  if (competition) return competition;
+  return '';
 }
 
 function sanitizeAusportTitle(title, home, away, competition) {
-  let t = collapseRepeatedText(title);
-  if (isMarketingBlurb(t)) {
-    if (home && away) return `${home} vs ${away}`;
-    if (home) return home;
-    if (competition) return competition;
-    return '';
-  }
-  return t;
+  const split = splitAusportTitlePipe(title);
+  let t = collapseRepeatedText(split.title);
+  // Prefer short head after pipe-promo strip; only fall back when still marketing.
+  if (t && !isMarketingBlurb(t)) return t;
+  return titleFallback(home, away, competition) || t || '';
 }
 
 function isEmptyGrandPrixSundayPreview(row) {

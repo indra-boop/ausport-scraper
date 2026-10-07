@@ -80,12 +80,27 @@ function applyChannelMerge(src) {
     );
   }
 
-  // Sanitize marketing titles when pushing row title
-  if (out.includes('sanitizeAusportTitle') && !out.includes('sanitizeAusportTitle(')) {
+  // Sanitize marketing / pipe-promo titles on day-page rows.
+  // Gate on the object-property call site, not the function signature
+  // (signature also contains sanitizeAusportTitle(title, ...)).
+  if (!out.includes('title: sanitizeAusportTitle(')) {
     out = out.replace(
       /title:\s*title\s*,/g,
       'title: sanitizeAusportTitle(title, home, away, currentCompetition),'
     );
+    // ES6 object shorthand in rows.push({ home, away, title, ... })
+    const shorthandRe =
+      /(competition:\s*currentCompetition,\s*\n\s*home,\s*\n\s*away,\s*\n\s*)title,/;
+    if (shorthandRe.test(out)) {
+      out = out.replace(
+        shorthandRe,
+        '$1title: sanitizeAusportTitle(title, home, away, currentCompetition),'
+      );
+      console.log('Wired sanitizeAusportTitle into day-page title shorthand');
+    }
+  }
+  if (!out.includes('title: sanitizeAusportTitle(')) {
+    console.warn('WARN: sanitizeAusportTitle not wired into day-page title');
   }
 
   // Keep integrity guard on all parsed rows, then exclude clear non-live programmes
@@ -131,6 +146,7 @@ function ensureExports(src) {
   const needed = [
     'collapseRepeatedText',
     'isMarketingBlurb',
+    'splitAusportTitlePipe',
     'sanitizeAusportTitle',
     'extractDescriptionChannels',
     'mergeEventChannels',
