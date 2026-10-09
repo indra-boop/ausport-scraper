@@ -44,4 +44,37 @@ const small = evaluateDropRisk(300, 200, tuesday); // ~33%
 assert.equal(small.trip, false);
 assert.equal(small.reason, 'within-threshold');
 
+// D) Empty-channels gate (>10% → trip, non-blocking)
+const { evaluateEmptyChannels, EMPTY_CHANNELS_RATIO } = require('./qc-rules');
+assert.equal(EMPTY_CHANNELS_RATIO, 0.1);
+const mk = (date, ch) => ({ tanggal_wita: date, channels: ch });
+const okRows = [
+  ...Array.from({ length: 19 }, () => mk('10/10/26', '[AU] Kayo Sports')),
+  mk('11/10/26', ''),
+]; // 1/20 = 5%
+const ok = evaluateEmptyChannels(okRows);
+assert.equal(ok.trip, false);
+assert.equal(ok.empty, 1);
+assert.equal(ok.total, 20);
+
+const atLimit = evaluateEmptyChannels([
+  ...Array.from({ length: 9 }, () => mk('10/10/26', '[AU] Fox Footy')),
+  mk('10/10/26', ''),
+]); // exactly 10% → not > 10%
+assert.equal(atLimit.trip, false);
+
+const bad = evaluateEmptyChannels([
+  mk('09/10/26', '[AU] 7mate'),
+  mk('11/10/26', ''),
+  mk('11/10/26', '[AU]'), // prefix only counts as empty
+  mk('10/10/26', '[AU] ESPN'),
+]);
+assert.equal(bad.trip, true);
+assert.equal(bad.empty, 2);
+assert.deepEqual(bad.byDate.map((d) => d.date), ['09/10/26', '10/10/26', '11/10/26']);
+assert.deepEqual(bad.byDate[2], { date: '11/10/26', empty: 2, total: 2 });
+
+assert.equal(evaluateEmptyChannels([]).trip, false);
+assert.equal(evaluateEmptyChannels([]).ratio, null);
+
 console.log('qc-rules tests passed');

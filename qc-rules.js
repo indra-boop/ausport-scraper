@@ -79,9 +79,51 @@ function evaluateDropRisk(previousCount, currentCount, today, opts = {}) {
   return { trip: true, dropRatio, reason: 'drop-exceeds-threshold' };
 }
 
+/**
+ * D) Empty-channels gate (2026-10-09). Flags a run when the share of rows
+ * with an empty `channels` value exceeds the threshold (default 10%).
+ *
+ * Non-blocking by design: ausportguide.com fills channel data for far-out
+ * days progressively, so a high ratio usually means "source not published
+ * yet" rather than a scraper failure. The per-date breakdown lets QC see
+ * whether the gap is near-term (real problem) or only the last days.
+ *
+ * @param {Array<{channels?: string, tanggal_wita?: string}>} rows
+ * @param {object} [opts]
+ * @param {number} [opts.threshold=0.10]
+ * @returns {{ trip: boolean, total: number, empty: number, ratio: number|null,
+ *             byDate: Array<{date: string, empty: number, total: number}> }}
+ */
+const EMPTY_CHANNELS_RATIO = 0.1;
+
+function evaluateEmptyChannels(rows, opts = {}) {
+  const threshold = opts.threshold ?? EMPTY_CHANNELS_RATIO;
+  const list = Array.isArray(rows) ? rows : [];
+  const isEmpty = (r) => !String((r && r.channels) || '').replace(/\[[A-Z]{2}\]/g, '').trim();
+  const counts = new Map();
+  let empty = 0;
+  for (const r of list) {
+    const date = String((r && r.tanggal_wita) || '?');
+    const c = counts.get(date) || { date, empty: 0, total: 0 };
+    c.total++;
+    if (isEmpty(r)) {
+      c.empty++;
+      empty++;
+    }
+    counts.set(date, c);
+  }
+  const total = list.length;
+  const ratio = total ? empty / total : null;
+  const dateKey = (d) => d.split('/').reverse().join('');
+  const byDate = [...counts.values()].sort((a, b) => dateKey(a.date).localeCompare(dateKey(b.date)));
+  return { trip: ratio !== null && ratio > threshold, total, empty, ratio, byDate };
+}
+
 module.exports = {
   COMMIT_FRESH_MAX_MS,
   DROP_RISK_RATIO,
+  EMPTY_CHANNELS_RATIO,
+  evaluateEmptyChannels,
   isCommitFresh,
   commitAgeHours,
   isMondayWeekReset,
