@@ -17,6 +17,9 @@ on:
       - "scraper.js"
       - "test-guard.js"
       - "test-freshness.js"
+      - "qc-rules.js"
+      - "test-qc-rules.js"
+      - "scripts/**"
       - "test-scraper-markup.js"
       - "test-fixtures/**"
       - ".github/workflows/scrape.yml"
@@ -135,6 +138,10 @@ jobs:
           git add -- "$file" "$baseline"
           git commit -m "chore: sync sports schedule"
           git push
+
+      - name: QC gate — empty channels (non-blocking)
+        continue-on-error: true
+        run: node scripts/qc-channels.js results.csv
 
       - name: Guard baseline freshness
         shell: bash
