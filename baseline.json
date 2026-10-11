@@ -1,12 +1,6 @@
 {
   "runs": [
     {
-      "at": "2026-09-13T02:02:24.428Z",
-      "scrapedRows": 187,
-      "publishedRows": 412,
-      "failedDays": 0
-    },
-    {
       "at": "2026-09-14T02:20:06.293Z",
       "scrapedRows": 194,
       "publishedRows": 194,
@@ -177,6 +171,12 @@
     {
       "at": "2026-10-10T03:19:00.910Z",
       "scrapedRows": 306,
+      "publishedRows": 364,
+      "failedDays": 0
+    },
+    {
+      "at": "2026-10-11T02:52:18.307Z",
+      "scrapedRows": 209,
       "publishedRows": 364,
       "failedDays": 0
     }
