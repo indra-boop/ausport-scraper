@@ -37,7 +37,7 @@ concurrency:
 jobs:
   validate:
     if: github.event_name == 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jerco-public, linode]
     timeout-minutes: 5
     steps:
       - name: Checkout pull request
@@ -61,7 +61,7 @@ jobs:
 
   production-sync:
     if: github.event_name != 'pull_request'
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jerco-public, linode]
     timeout-minutes: 20
     env:
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
@@ -98,14 +98,6 @@ jobs:
               exit 1
             fi
           done
-
-      - name: Install Chromium
-        shell: bash
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y chromium
-          echo "PUPPETEER_EXECUTABLE_PATH=$(which chromium)" >> "$GITHUB_ENV"
 
       - name: Install dependencies
         run: npm ci
