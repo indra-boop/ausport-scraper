@@ -8,7 +8,7 @@ permissions:
 
 jobs:
   validate-token:
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, jerco-public, linode]
     timeout-minutes: 5
 
     steps:
