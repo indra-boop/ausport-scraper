@@ -37,7 +37,7 @@ concurrency:
 jobs:
   validate:
     if: github.event_name == 'pull_request'
-    runs-on: [self-hosted, jerco-public, linode]
+    runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Checkout pull request
@@ -61,7 +61,7 @@ jobs:
 
   production-sync:
     if: github.event_name != 'pull_request'
-    runs-on: [self-hosted, jerco-public, linode]
+    runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
       PUPPETEER_SKIP_CHROMIUM_DOWNLOAD: "true"
