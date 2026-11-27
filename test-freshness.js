@@ -5,11 +5,43 @@ const {
   applyCurrentWeekFreshness,
   classifyHttpError,
   describeHttpError,
+  convertSourceTimeToWita,
+  extractTimeFromHotText,
   fmtTanggal,
+  getWitaDateFromBase,
+  parseAmPm,
   targetWeekBounds
 } = require('./scraper');
 
 const today = new Date(Date.UTC(2026, 7, 12));
+
+// Mito–Tokyo Verdy (Ausport 1646050) appeared twice on 25 Nov 2026:
+// both "9:00PM" and "21:00" mean 18:00 WITA. Check standard time and
+// midnight too, so a fixed three-hour subtraction cannot pass.
+const summer = new Date(Date.UTC(2026, 10, 25));
+for (const [date, source, expected] of [
+  [summer, '21:00', '6:00PM'], [summer, '9:00PM', '6:00PM'],
+  [summer, '07:00', '4:00AM'], [summer, '00:30', '9:30PM'],
+  [today, '21:00', '7:00PM'], [today, '01:00', '11:00PM']
+]) assert.equal(convertSourceTimeToWita(source, date), expected);
+assert.deepEqual(getWitaDateFromBase(summer, '00:30'), { hariWita: 'Selasa', tanggalWita: '24/11/26' });
+assert.equal(extractTimeFromHotText('Today from 21:00 | Mito - Tokyo Verdy'), '21:00');
+assert.equal(extractTimeFromHotText('Today from 9:00 PM | Mito - Tokyo Verdy'), '9:00PM');
+for (const invalid of ['24:15', '15:60', '13:00PM', 'TBD']) assert.equal(parseAmPm(invalid), null);
+
+const oldMito = { tanggal: '25/11/26', time_aedt: '21:00', tanggal_wita: '25/11/26', time_wita: '21:00',
+  home: 'Mito', away: 'Tokyo Verdy', end_time_wita: '8:00PM', end_tanggal_wita: '25/11/26' };
+const newMito = { ...oldMito, time_aedt: '9:00PM', time_wita: '6:00PM' };
+const midnight = { ...oldMito, time_aedt: '00:30', time_wita: '00:30', home: 'Night match' };
+const valid = { ...oldMito, time_wita: '18:00', home: 'Already converted' };
+const repaired = applyCurrentWeekFreshness([newMito], [oldMito, midnight, valid], summer).rows;
+assert.equal(repaired.length, 3);
+assert.equal(repaired.find((r) => r.home === 'Mito').end_time_wita, '8:00PM');
+assert.equal(repaired.find((r) => r.home === 'Night match').tanggal_wita, '24/11/26');
+assert.equal(repaired.find((r) => r.home === 'Already converted').time_wita, '18:00');
+assert.deepEqual(applyCurrentWeekFreshness([newMito], repaired, summer).rows, repaired);
+const mondayRollover = { ...midnight, tanggal: '23/11/26', tanggal_wita: '23/11/26' };
+assert.equal(applyCurrentWeekFreshness([newMito], [mondayRollover], summer).rows.length, 1);
 const event = (date, home) => ({
   tanggal_wita: date,
   time_wita: '5:30PM',
