@@ -174,6 +174,20 @@ function ensureExports(src) {
   return out;
 }
 
-const fixed = applyChannelMerge(loadBase());
+function applySourceClockFix(src) {
+  const parser = 'function parseAmPm(timeStr) {';
+  const archive = 'const archiveRows = previousRows.filter(';
+  const hotClock = String.raw`(\d{1,2}:\d{2}\s*(?:AM|PM))\b`;
+  if (!src.includes(parser) || !src.includes(archive) || !src.includes(hotClock)) {
+    throw new Error('Could not locate source clock parser, hot-event clock or archive selection');
+  }
+  const helpers = fs.readFileSync(path.join(__dirname, 'source-clock.inc.js'), 'utf8');
+  return src
+    .replace(parser, () => helpers + '\n' + parser + '\n  const clock24 = parse24HourClock(timeStr);\n  if (clock24) return clock24;')
+    .replace(hotClock, () => String.raw`(\d{1,2}:\d{2}(?:\s*(?:AM|PM))?)\b(?!:)`)
+    .replace(archive, 'const archiveRows = previousRows.map(restoreArchivedClock).filter(');
+}
+
+const fixed = applySourceClockFix(applyChannelMerge(loadBase()));
 fs.writeFileSync(OUT, fixed);
 console.log(`Wrote ${OUT} (${fixed.length} bytes)`);
